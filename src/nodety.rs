@@ -10,8 +10,7 @@ use crate::{
         ScopePortal, TypeExpr, TypeExprScope, TypeExprValidationError, Unscoped, node_signature::NodeSignature,
     },
 };
-use petgraph::dot::Dot;
-pub use petgraph::graph::{EdgeIndex, NodeIndex};
+use petgraph::{dot::Dot, graph::{EdgeIndex, NodeIndex}};
 use petgraph::prelude::StableDiGraph;
 use std::{
     collections::BTreeMap,
@@ -33,7 +32,23 @@ mod private {
     pub trait Sealed {}
 }
 
+#[cfg(feature = "serde")]
+mod node_index_serde {
+    use petgraph::graph::NodeIndex;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &Option<NodeIndex>, s: S) -> Result<S::Ok, S::Error> {
+        v.as_ref().map(|i| i.index()).serialize(s)
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<NodeIndex>, D::Error> {
+        Option::<usize>::deserialize(d).map(|o| o.map(NodeIndex::new))
+    }
+}
+
 /// An edge connecting a source output port to a target input port.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "json-schema", derive(JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(Tsify))]
 #[derive(Debug, Clone)]
 pub struct Edge {
     pub source_port: usize,
@@ -41,10 +56,23 @@ pub struct Edge {
 }
 
 /// A node in the nodety graph.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(bound(
+        serialize = "T: Serialize, T::Operator: Serialize, S: Serialize",
+        deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>, S: Deserialize<'de>"
+    ))
+)]
+#[cfg_attr(feature = "json-schema", derive(JsonSchema))]
+#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, S: JsonSchema"))]
+#[cfg_attr(feature = "tsify", derive(Tsify))]
 #[derive(Debug, Clone)]
 pub struct Node<T: Type, S: TypeExprScope = Unscoped> {
     pub signature: NodeSignature<T, S>,
     /// Node index of the parent node if there is one.
+    #[cfg_attr(feature = "json-schema", schemars(with = "usize"))]
+    #[cfg_attr(feature = "serde", serde(with = "node_index_serde"))]
     pub parent: Option<NodeIndex>,
     /// These will get inferred directly before inferring anything else. Setting
     /// this is required only when inference is ambiguous. Aka rusts "type annotations needed".
@@ -118,6 +146,7 @@ impl<T: Type> From<NodeSignature<T, Unscoped>> for Node<T, ScopePortal<T>> {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
+#[cfg_attr(feature = "tsify", tsify(into_wasm_abi, from_wasm_abi))]
 pub enum NodetyError {
     NodeHasChildren,
     ParentNotFound,
