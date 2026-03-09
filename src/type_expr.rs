@@ -29,6 +29,8 @@ pub mod node_signature;
 pub mod normalization;
 pub mod subtyping;
 
+pub use conversions::HasScopePortals;
+
 mod private {
     pub trait Sealed {}
 }
