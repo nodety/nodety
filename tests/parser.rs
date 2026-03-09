@@ -1,11 +1,12 @@
-use crate::common::{expr, sig};
+use crate::common::{expr, sig, sig_u};
+use assert_matches::assert_matches;
 use maplit::btreemap;
 use nodety::demo_type::{DemoType, SIUnit};
 use nodety::notation::parse::{
-    parse_quoted_string, parse_si_unit, parse_type_expr, parse_type_expr_union, parse_type_parameter,
+    parse_quoted_string, parse_si_unit, parse_type_expr, parse_type_expr_union, parse_type_hints, parse_type_parameter,
     parse_type_parameter_declarations,
 };
-use nodety::scope::LocalParamID;
+use nodety::scope::{LocalParamID, Scope};
 use nodety::type_expr::{
     ScopePortal, TypeExpr, Unscoped,
     conditional::Conditional,
@@ -314,4 +315,48 @@ fn test_try_parse_node_signature() {
 
     let err = NodeSignature::<DemoType, Unscoped>::try_parse("() -> () extra").unwrap_err();
     assert!(err.remaining.contains("extra"));
+}
+
+#[test]
+fn test_parse_error_display() {
+    let result = TypeExpr::<DemoType>::try_parse("??? invalid");
+    assert!(result.is_err());
+    let display = format!("{}", result.unwrap_err());
+    assert!(display.contains("parse error"));
+}
+
+#[test]
+fn test_parse_remaining_input_error() {
+    assert!(TypeExpr::<DemoType>::try_parse("Integer GARBAGE").is_err());
+}
+
+#[test]
+fn test_parse_node_signature_remaining_input_error() {
+    assert!(NodeSignature::<DemoType>::try_parse("() -> () GARBAGE").is_err());
+}
+
+#[test]
+fn test_parse_scope_from_str() {
+    let scope: Scope<DemoType> = "<T, U extends T>".parse().unwrap();
+    assert_eq!(scope.variables().len(), 2);
+}
+
+#[test]
+fn test_parse_scope_remaining_error() {
+    assert!(Scope::<DemoType>::try_parse("<T> GARBAGE").is_err());
+}
+
+#[test]
+fn test_parse_type_hints() {
+    let (_, hints) = parse_type_hints::<DemoType, Unscoped>("T = Integer, U = String").unwrap();
+    assert_eq!(hints.len(), 2);
+}
+
+#[test]
+fn test_parse_varg_only() {
+    let sig = sig_u("(...Integer) -> ()");
+    assert_matches!(sig.inputs, TypeExpr::PortTypes(ref p) => {
+        assert!(p.ports.is_empty());
+        assert!(p.varg.is_some());
+    });
 }

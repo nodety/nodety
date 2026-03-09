@@ -2,7 +2,7 @@ use nodety::{
     NoOperator, Type, TypeExpr,
     notation::{format::FormattableType, parse::ParsableType},
     scope::ScopePointer,
-    type_expr::{ScopePortal, TypeExprScope, Unscoped, node_signature::port_types::PortTypes},
+    type_expr::{ScopePortal, TypeExprScope, node_signature::port_types::PortTypes},
 };
 use nom::{IResult, Parser, bytes::complete::tag, combinator::value};
 use proptest::prelude::*;

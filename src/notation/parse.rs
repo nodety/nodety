@@ -559,6 +559,7 @@ pub(crate) fn sig(input: &str) -> NodeSignature<DemoType, ScopePortal<DemoType>>
 /// Shorthand for tests.
 #[cfg(test)]
 #[track_caller]
+#[allow(dead_code)]
 pub(crate) fn sig_u(input: &str) -> NodeSignature<DemoType, Unscoped> {
     NodeSignature::from_str(input).expect(&format!("Failed to parse {input}"))
 }

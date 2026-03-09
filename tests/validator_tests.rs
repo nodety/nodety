@@ -2,6 +2,8 @@ use crate::common::{graph, sig_u};
 use assert_matches::assert_matches;
 use maplit::hashset;
 use nodety::{
+    Nodety,
+    demo_type::DemoType,
     inference::InferenceConfig,
     validation::{ValidationError, ValidationErrorKind},
 };
@@ -260,4 +262,17 @@ fn test_runtime_panicked() {
     let errors = engine.validate(&engine.infer(InferenceConfig::default()));
 
     assert_eq!(errors, []);
+}
+
+#[test]
+fn test_validate_multiple_edges_on_one_input() {
+    let mut nodety = Nodety::<DemoType>::new();
+    let a = nodety.add_node(sig_u("() -> (Integer)")).unwrap();
+    let b = nodety.add_node(sig_u("() -> (Integer)")).unwrap();
+    let c = nodety.add_node(sig_u("(Integer) -> ()")).unwrap();
+    nodety.add_edge(a, c, 0, 0);
+    nodety.add_edge(b, c, 0, 0);
+
+    let errors = nodety.validate(&nodety.infer(InferenceConfig::default()));
+    assert!(errors.iter().any(|e| matches!(e.kind, ValidationErrorKind::MultipleEdgesOnOneInput)));
 }
