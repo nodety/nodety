@@ -9,13 +9,9 @@ repository = "https://github.com/TimoLehnertz/nodety"
 readme = "README.md"
 keywords = [
     "node",
-    "graph",
     "types",
     "generics",
     "inference",
-    "validation",
-    "typescript",
-    "node editor",
     "visual",
 ]
 categories = ["wasm", "web-programming"]
