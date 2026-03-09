@@ -2,6 +2,7 @@
 [![Documentation](https://docs.rs/nodety/badge.svg)](https://docs.rs/nodety/)
 [![dependency status](https://deps.rs/repo/github/timolehnertz/nodety/status.svg)](https://deps.rs/repo/github/timolehnertz/nodety)
 [![Codecov](https://codecov.io/github/TimoLehnertz/nodety/coverage.svg?branch=master)](https://codecov.io/gh/TimoLehnertz/nodety)
+
 # Nodety
 
 Generics, type inference, and validation for visual node editors.
@@ -87,6 +88,10 @@ The MSRV is **1.85.0** (Rust edition 2024).
 ## Documentation
 
 See the [crate docs](https://docs.rs/nodety) for the full guide — types, scopes, notation, and more.
+
+## State of this crate
+
+This crate is still in its early stages. The core architecture and features have been worked out. But the API might still change in the near future on the path to finding the most ergonomic abstractions.
 
 ## Contributing
 

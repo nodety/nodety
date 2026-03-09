@@ -233,11 +233,18 @@
 //! assert_eq!("Integer", format!("{}", expr));
 //! ```
 //!
+//! ## State of this crate
+//!
+//! This crate is still in its early stages. The core architecture and features have been worked out. But the API might still change in the near future on the
+//! path to finding the most ergonomic abstractions.
+//!
 pub mod autocomplete;
 pub mod demo_type;
 pub mod node_sorting;
 pub mod nodety;
+pub mod nodety_cached;
 pub use nodety::{Node, Nodety, inference, validation};
+pub use nodety_cached::NodetyCached;
 pub mod notation;
 pub mod scope;
 mod r#type;
