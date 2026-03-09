@@ -269,12 +269,6 @@ impl<T: Type> Scope<T> {
         inferred: TypeExpr<T, ScopePortal<T>>,
         inferred_scope: ScopePointer<T>,
     ) -> Result<(), ScopeError> {
-        // if inferred.references(
-        //     &HashSet::from([GlobalParameterId { scope: inferred_scope.clone(), local_id: *ident }]),
-        //     &inferred_scope,
-        // ) {
-        //     panic!("cyclic reference detected");
-        // }
         let Some(registered) = self.variables.get(ident) else {
             return Err(ScopeError::ParameterNotFound);
         };
@@ -327,5 +321,9 @@ impl<T: Type> Scope<T> {
         let self_iter = self.variables.iter().map(|(id, var)| (*id, var));
         let parent_iter = self.parent.as_ref().map(|p| p.all_defined()).into_iter().flatten();
         Box::new(self_iter.chain(parent_iter))
+    }
+
+    pub fn parent(&self) -> &Option<ScopePointer<T>> {
+        &self.parent
     }
 }

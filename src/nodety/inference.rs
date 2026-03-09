@@ -145,12 +145,6 @@ impl<T: Type> Default for InferenceConfig<T> {
 
 impl<'a, T: Type> Flows<'a, T> {
     pub fn infer(mut self, mut config: InferenceConfig<T>) {
-        // if let Some(restrictions) = config.restrictions {
-        //     self.flows.retain(|flow| {
-        //         flow.source.references(&restrictions, &flow.source_scope)
-        //             || flow.target.references(&restrictions, &flow.target_scope)
-        //     });
-        // }
         for step in config.steps {
             // Optimization:
             // All flows that don't contain any uninferred parameters won't produce

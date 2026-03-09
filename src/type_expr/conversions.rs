@@ -31,6 +31,13 @@ impl<T: Type> From<TypeExpr<T, Unscoped>> for TypeExpr<T, ScopePortal<T>> {
     }
 }
 
+impl<T: Type> TypeExpr<T, Unscoped> {
+    /// Converts an unscoped type expression into a scoped one.
+    pub fn into_scoped(self) -> TypeExpr<T, ScopePortal<T>> {
+        self.into()
+    }
+}
+
 // Type parameter conversions
 
 impl<T: Type> From<TypeParameter<T, ScopePortal<T>>> for TypeParameter<T, ErasedScopePortal> {
@@ -51,6 +58,13 @@ impl<T: Type> From<TypeParameter<T, Unscoped>> for TypeParameter<T, ScopePortal<
     }
 }
 
+impl<T: Type> TypeParameter<T, Unscoped> {
+    /// Converts an unscoped type parameter into a scoped one.
+    pub fn into_scoped(self) -> TypeParameter<T, ScopePortal<T>> {
+        self.into()
+    }
+}
+
 // Node signature
 
 impl<T: Type> From<NodeSignature<T, ScopePortal<T>>> for NodeSignature<T, ErasedScopePortal> {
@@ -68,6 +82,28 @@ impl<T: Type> From<NodeSignature<T, Unscoped>> for NodeSignature<T, ErasedScopeP
 impl<T: Type> From<NodeSignature<T, Unscoped>> for NodeSignature<T, ScopePortal<T>> {
     fn from(value: NodeSignature<T, Unscoped>) -> Self {
         value.map_scope_portals(&mut |never| match never {})
+    }
+}
+
+impl<T: Type> NodeSignature<T, Unscoped> {
+    /// Converts an unscoped node signature into a scoped one.
+    pub fn into_scoped(self) -> NodeSignature<T, ScopePortal<T>> {
+        self.into()
+    }
+}
+
+// Port types
+
+impl<T: Type> From<PortTypes<T, Unscoped>> for PortTypes<T, ScopePortal<T>> {
+    fn from(value: PortTypes<T, Unscoped>) -> Self {
+        value.map_scope_portals(&mut |never| match never {})
+    }
+}
+
+impl<T: Type> PortTypes<T, Unscoped> {
+    /// Converts unscoped port types into scoped ones.
+    pub fn into_scoped(self) -> PortTypes<T, ScopePortal<T>> {
+        self.into()
     }
 }
 
@@ -136,6 +172,7 @@ impl<T: Type, S: TypeExprScope> TypeExpr<T, S> {
 }
 
 impl<T: Type, S: TypeExprScope> PortTypes<T, S> {
+
     pub(crate) fn try_map_scope_portals<SO: TypeExprScope, E>(
         self,
         mapper: &mut impl FnMut(S) -> Result<SO, E>,
