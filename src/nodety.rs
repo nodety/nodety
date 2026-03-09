@@ -303,10 +303,10 @@ impl<T: Type> Nodety<T> {
         if self.children.get(&node_id).is_some_and(|c| !c.is_empty()) {
             return Err(NodetyError::NodeHasChildren);
         }
-        if let Some(old_node) = self.program.remove_node(node_id)
-            && let Some(parent) = old_node.parent
-        {
-            self.unregister_child(parent, node_id);
+        if let Some(old_node) = self.program.remove_node(node_id) {
+            if let Some(parent) = old_node.parent {
+                self.unregister_child(parent, node_id);
+            }
         }
         self.children.remove(&node_id);
         Ok(())
