@@ -27,7 +27,7 @@ impl<T: Type> From<TypeExpr<T, Unscoped>> for TypeExpr<T, ErasedScopePortal> {
 
 impl<T: Type> From<TypeExpr<T, Unscoped>> for TypeExpr<T, ScopePortal<T>> {
     fn from(value: TypeExpr<T, Unscoped>) -> Self {
-        value.map_scope_portals(&mut |_never| unreachable!("Unscoped has no values and thus can never be constructed."))
+        value.map_scope_portals(&mut |never| match never {})
     }
 }
 
@@ -47,7 +47,7 @@ impl<T: Type> From<TypeParameter<T, Unscoped>> for TypeParameter<T, ErasedScopeP
 
 impl<T: Type> From<TypeParameter<T, Unscoped>> for TypeParameter<T, ScopePortal<T>> {
     fn from(value: TypeParameter<T, Unscoped>) -> Self {
-        value.map_scope_portals(&mut |_never| unreachable!("Unscoped has no values and thus can never be constructed."))
+        value.map_scope_portals(&mut |never| match never {})
     }
 }
 
@@ -67,7 +67,7 @@ impl<T: Type> From<NodeSignature<T, Unscoped>> for NodeSignature<T, ErasedScopeP
 
 impl<T: Type> From<NodeSignature<T, Unscoped>> for NodeSignature<T, ScopePortal<T>> {
     fn from(value: NodeSignature<T, Unscoped>) -> Self {
-        value.map_scope_portals(&mut |_never| unreachable!("Unscoped has no values and thus can never be constructed."))
+        value.map_scope_portals(&mut |never| match never {})
     }
 }
 
@@ -93,10 +93,9 @@ impl<T: Type, S: TypeExprScope> TypeExpr<T, S> {
             Self::TypeParameter(id, infer) => TypeExpr::TypeParameter(id, infer),
             Self::NodeSignature(sig) => TypeExpr::NodeSignature(Box::new(sig.try_map_scope_portals(mapper)?)),
             Self::PortTypes(pt) => TypeExpr::PortTypes(Box::new(pt.try_map_scope_portals(mapper)?)),
-            Self::Union(a, b) => TypeExpr::Union(
-                Box::new(a.try_map_scope_portals(mapper)?),
-                Box::new(b.try_map_scope_portals(mapper)?),
-            ),
+            Self::Union(a, b) => {
+                TypeExpr::Union(Box::new(a.try_map_scope_portals(mapper)?), Box::new(b.try_map_scope_portals(mapper)?))
+            }
             Self::KeyOf(expr) => TypeExpr::KeyOf(Box::new(expr.try_map_scope_portals(mapper)?)),
             Self::Index { expr, index } => TypeExpr::Index {
                 expr: Box::new(expr.try_map_scope_portals(mapper)?),
@@ -115,18 +114,22 @@ impl<T: Type, S: TypeExprScope> TypeExpr<T, S> {
             })),
             Self::Any => TypeExpr::Any,
             Self::Never => TypeExpr::Never,
-            Self::ScopePortal { expr, scope } => TypeExpr::ScopePortal {
-                expr: Box::new(expr.try_map_scope_portals(mapper)?),
-                scope: mapper(scope)?,
-            },
+            Self::ScopePortal { expr, scope } => {
+                TypeExpr::ScopePortal { expr: Box::new(expr.try_map_scope_portals(mapper)?), scope: mapper(scope)? }
+            }
         })
     }
 
+    /// Infallible version of [Self::try_map_scope_portals].
     pub fn map_scope_portals<SO: TypeExprScope>(self, mapper: &mut impl FnMut(S) -> SO) -> TypeExpr<T, SO> {
         self.try_map_scope_portals::<SO, std::convert::Infallible>(&mut |s| Ok(mapper(s)))
             .unwrap_or_else(|e| match e {})
     }
 
+    /// Attempts to convert an expression into unscoped.
+    /// Does not modify the expression in any way.
+    /// # Errors
+    /// if the expression contains a [TypeExpr::ScopePortal], variant.
     pub fn try_into_unscoped(self) -> Result<TypeExpr<T, Unscoped>, HasScopePortals> {
         self.try_map_scope_portals(&mut |_| Err(HasScopePortals))
     }

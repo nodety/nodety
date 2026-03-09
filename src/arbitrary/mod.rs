@@ -290,5 +290,5 @@ fn make_expr_valid<T: Type>(expr: TypeExpr<T>) -> TypeExpr<T> {
             break;
         }
     }
-    scoped.map_scope_portals::<Unscoped>(&mut |_| unreachable!("Unscoped can't have scope portals."))
+    scoped.try_into_unscoped().expect("Unscoped can't have scope portals")
 }

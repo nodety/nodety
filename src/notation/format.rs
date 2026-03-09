@@ -162,7 +162,7 @@ impl<T: FormattableType> TypeExpr<T, Unscoped> {
     pub fn format_type(&self, f: &mut std::fmt::Formatter<'_>, atomic: bool) -> fmt::Result {
         match self {
             // scope is !
-            Self::ScopePortal { scope: _, expr: _ } => unreachable!(),
+            Self::ScopePortal { scope: never, .. } => match *never {},
 
             Self::Any => Ok(write!(f, "Any")?),
             Self::Conditional(conditional) => {
