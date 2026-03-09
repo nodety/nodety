@@ -415,11 +415,11 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                 if !is_top_level_union {
                     return;
                 }
-                if let TypeExpr::TypeParameter(param, _infer) = type_expr
-                    && scope.is_inferred(param)
-                {
-                    // If the param is inferred, self.traverse will look it up and call this walker again.
-                    return;
+                if let TypeExpr::TypeParameter(param, _infer) = type_expr {
+                    if !scope.is_inferred(param) {
+                        // If the param is inferred, self.traverse will look it up and call this walker again.
+                        return;
+                    }
                 }
                 walker(type_expr, scope);
             },

@@ -185,10 +185,10 @@ impl<'a, T: Type> Flows<'a, T> {
                         )
                     };
                     for (global_param_id, candidate) in candidates {
-                        if let Some(restrictions) = &config.restrictions
-                            && !restrictions.contains(&global_param_id)
-                        {
-                            continue;
+                        if let Some(restrictions) = &config.restrictions {
+                            if !restrictions.contains(&global_param_id) {
+                                continue;
+                            }
                         }
                         all_candidates
                             .entry(global_param_id)
