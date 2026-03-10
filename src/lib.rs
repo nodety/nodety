@@ -240,6 +240,7 @@
 //! path to finding the most ergonomic abstractions.
 //!
 pub mod autocomplete;
+pub use autocomplete::{Autocomplete, Autocompletion, Side, is_compatible};
 pub mod demo_type;
 pub mod node_sorting;
 pub mod nodety;
