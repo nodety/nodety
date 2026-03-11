@@ -32,6 +32,7 @@ pub enum Side {
 /// A single autocompletion candidate: a port on a node signature that is compatible.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
 pub struct Autocompletion<I> {

@@ -23,7 +23,7 @@ use tsify::Tsify;
 /// Location of a validation error in the graph.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "serde", serde(tag = "type", content = "data"))]
+#[cfg_attr(feature = "serde", serde(rename_all_fields = "camelCase", tag = "type", content = "data"))]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
 pub enum GraphLocation {
@@ -42,6 +42,7 @@ impl Default for GraphLocation {
 #[cfg_attr(
     feature = "serde",
     serde(
+        rename_all_fields = "camelCase",
         tag = "type",
         content = "data",
         bound(
@@ -76,7 +77,7 @@ pub enum ValidationErrorKind<T: Type> {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(
     feature = "serde",
-    serde(bound(
+    serde(rename_all = "camelCase", bound(
         serialize = "T: Serialize, T::Operator: Serialize",
         deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>"
     ))

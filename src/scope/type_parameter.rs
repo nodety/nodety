@@ -13,7 +13,7 @@ use tsify::Tsify;
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(
     feature = "serde",
-    serde(bound(
+    serde(rename_all = "camelCase", bound(
         serialize = "T: Serialize, T::Operator: Serialize, S: Serialize",
         deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>, S: Deserialize<'de>"
     ))

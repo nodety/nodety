@@ -88,6 +88,7 @@ impl TypeExprScope for ErasedScopePortal {}
 #[cfg_attr(
     feature = "serde",
     serde(
+        rename_all_fields = "camelCase",
         tag = "type",
         content = "data",
         bound(
