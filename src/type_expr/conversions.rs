@@ -207,11 +207,10 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
     /// When there is at least one [ScopePortal][TypeExpr::ScopePortal] whose expression contains a type parameter.
     pub fn try_remove_scope_portals(
         mut self,
-        scope: &ScopePointer<T>,
     ) -> Result<UnscopedTypeExpr<T>, HasTypeParameters> {
         let mut failed = false;
         self.traverse_mut(
-            scope,
+            &ScopePointer::new_root(),
             &mut |expr, _scope, _is_tl_union| {
                 if let TypeExpr::ScopePortal { scope: _, expr: inner_expr } = expr {
                     if inner_expr.contains_type_param() {

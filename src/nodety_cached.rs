@@ -8,7 +8,7 @@ use crate::{
     nodety::{Edge, IntoNode, Node, Nodety, NodetyError, inference::InferenceConfig},
     scope::ScopePointer,
     r#type::Type,
-    type_expr::ScopePortal,
+    type_expr::Unscoped,
     validation::ValidationError,
 };
 use petgraph::graph::{EdgeIndex, NodeIndex};
@@ -90,12 +90,12 @@ impl<T: Type> NodetyCached<T> {
     }
 
     /// Returns the node at `node_idx`.
-    pub fn get_node(&self, node_idx: NodeIndex) -> Option<&Node<T, ScopePortal<T>>> {
+    pub fn get_node(&self, node_idx: NodeIndex) -> Option<&Node<T, Unscoped>> {
         self.nodety.get_node(node_idx)
     }
 
     /// Returns the underlying graph.
-    pub fn program(&self) -> &StableDiGraph<Node<T, ScopePortal<T>>, Edge> {
+    pub fn program(&self) -> &StableDiGraph<Node<T, Unscoped>, Edge> {
         self.nodety.program()
     }
 

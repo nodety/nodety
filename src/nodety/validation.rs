@@ -164,7 +164,7 @@ impl<T: Type> Nodety<T> {
                 continue;
             };
 
-            match target_port.supertype_of_detailed(source_port, target_scope, source_scope) {
+            match target_port.clone().into_scoped().supertype_of_detailed(&source_port.clone().into_scoped(), target_scope, source_scope) {
                 SupertypeResult::Supertype => (),
                 SupertypeResult::Unrelated(d) => errors.push(ValidationError {
                     location: GraphLocation::Edge(edge.id().index()),
@@ -202,7 +202,7 @@ impl<T: Type> Nodety<T> {
                     continue;
                 };
 
-                match port_type.supertype_of_detailed(default_type, scope, scope) {
+                match port_type.clone().into_scoped().supertype_of_detailed(&default_type.clone().into_scoped(), scope, scope) {
                     SupertypeResult::Supertype => (), // all ok
                     SupertypeResult::Unrelated(d) => errors.push(ValidationError {
                         location: GraphLocation::InputPort { node_idx: node_idx.index(), input_idx: *input_idx },

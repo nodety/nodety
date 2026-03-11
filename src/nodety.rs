@@ -51,7 +51,7 @@ pub struct Edge {
 /// has the added benefit that `T` will stay inferred across `impl IntoNode<T>`.
 /// With into, the T gets lost.
 pub trait IntoNode<T: Type>: private::Sealed {
-    fn into_node(self) -> Node<T, ScopePortal<T>>;
+    fn into_node(self) -> Node<T, Unscoped>;
 }
 
 impl<T: Type> private::Sealed for Node<T, Unscoped> {}
@@ -59,13 +59,13 @@ impl<T: Type> private::Sealed for Node<T, Unscoped> {}
 impl<T: Type> private::Sealed for NodeSignature<T, Unscoped> {}
 
 impl<T: Type> IntoNode<T> for NodeSignature<T, Unscoped> {
-    fn into_node(self) -> Node<T, ScopePortal<T>> {
+    fn into_node(self) -> Node<T, Unscoped> {
         Node { signature: self.into(), parent: None, type_hints: TypeHints::default() }
     }
 }
 
 impl<T: Type> IntoNode<T> for Node<T, Unscoped> {
-    fn into_node(self) -> Node<T, ScopePortal<T>> {
+    fn into_node(self) -> Node<T, Unscoped> {
         Node {
             signature: self.signature.into(),
             parent: self.parent,
@@ -120,7 +120,7 @@ impl Error for NodetyError {}
 type ChildrenMap = BTreeMap<NodeIndex, Vec<NodeIndex>>;
 
 pub struct Nodety<T: Type> {
-    program: StableDiGraph<Node<T, ScopePortal<T>>, Edge>,
+    program: StableDiGraph<Node<T, Unscoped>, Edge>,
     children: ChildrenMap,
 }
 
@@ -172,7 +172,7 @@ impl<T: Type> Nodety<T> {
     /// let map_node_idx = nodety.add_node(Node{signature: map_node, parent: Some(map_node_idx), ..Default::default()}).unwrap();
     /// ```
     pub fn add_node(&mut self, node: impl IntoNode<T>) -> Result<NodeIndex, NodetyError> {
-        let node: Node<T, ScopePortal<T>> = node.into_node();
+        let node: Node<T, Unscoped> = node.into_node();
         let node_scope = if let Some(parent) = node.parent {
             if !self.program.contains_node(parent) {
                 return Err(NodetyError::ParentNotFound);
@@ -181,7 +181,7 @@ impl<T: Type> Nodety<T> {
         } else {
             ScopePointer::new_root()
         };
-        node.signature.validate(&node_scope).map_err(NodetyError::TypeExprValidationError)?;
+        node.signature.clone().into_scoped().validate(&node_scope).map_err(NodetyError::TypeExprValidationError)?;
 
         let parent = node.parent;
         let node_idx = self.program.add_node(node);
@@ -201,7 +201,7 @@ impl<T: Type> Nodety<T> {
     /// - if the new parent would create a cycle
     /// - if the node signature is invalid (See [NodeSignature::validate](crate::NodeSignature::validate))
     pub fn update_node(&mut self, node_id: NodeIndex, node: impl IntoNode<T>) -> Result<(), NodetyError> {
-        let node: Node<T, ScopePortal<T>> = node.into_node();
+        let node: Node<T, Unscoped> = node.into_node();
 
         if !self.program.contains_node(node_id) {
             return Err(NodetyError::NodeNotFound);
@@ -213,7 +213,7 @@ impl<T: Type> Nodety<T> {
             ScopePointer::new_root()
         };
 
-        node.signature.validate(&node_scope).map_err(NodetyError::TypeExprValidationError)?;
+        node.signature.clone().into_scoped().validate(&node_scope).map_err(NodetyError::TypeExprValidationError)?;
 
         if let Some(new_parent) = node.parent {
             if !self.program.contains_node(new_parent) {
@@ -265,12 +265,12 @@ impl<T: Type> Nodety<T> {
         self.program.remove_edge(edge_idx)
     }
 
-    pub fn get_node(&self, node_idx: NodeIndex) -> Option<&Node<T, ScopePortal<T>>> {
+    pub fn get_node(&self, node_idx: NodeIndex) -> Option<&Node<T, Unscoped>> {
         self.program.node_weight(node_idx)
     }
 
     /// Returns the underlying graph.
-    pub fn program(&self) -> &StableDiGraph<Node<T, ScopePortal<T>>, Edge> {
+    pub fn program(&self) -> &StableDiGraph<Node<T, Unscoped>, Edge> {
         &self.program
     }
 

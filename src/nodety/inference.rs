@@ -42,16 +42,16 @@ impl FlowSourceLocation {
 /// - Input to output
 /// - and default type to input.
 #[derive(Debug)]
-pub struct Flow<'a, T: Type> {
-    pub source: &'a ScopedTypeExpr<T>,
+pub struct Flow<T: Type> {
+    pub source: ScopedTypeExpr<T>,
     pub source_scope: ScopePointer<T>,
-    pub target: &'a ScopedTypeExpr<T>,
+    pub target: ScopedTypeExpr<T>,
     pub target_scope: ScopePointer<T>,
 }
 
 #[derive(Debug)]
-pub struct FlowWithMetadata<'a, T: Type> {
-    pub flow: Flow<'a, T>,
+pub struct FlowWithMetadata<T: Type> {
+    pub flow: Flow<T>,
     pub source_location: FlowSourceLocation,
     pub target_location: FlowTargetLocation,
 }
@@ -139,7 +139,7 @@ impl<T: Type> Default for InferenceConfig<T> {
     }
 }
 
-pub fn infer<'a, T: Type>(mut flows: Vec<Flow<'a, T>>, config: &InferenceConfig<T>) {
+pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
     let mut stop_after = config.stop_after.clone();
     for step in &config.steps {
         // Optimization:
@@ -154,7 +154,7 @@ pub fn infer<'a, T: Type>(mut flows: Vec<Flow<'a, T>>, config: &InferenceConfig<
             for flow in &flows {
                 let candidates = if step.direction == InferenceDirection::Forward {
                     flow.target.collect_candidates(
-                        flow.source,
+                        &flow.source,
                         &flow.target_scope,
                         &flow.source_scope,
                         step.infer_candidates,
@@ -162,7 +162,7 @@ pub fn infer<'a, T: Type>(mut flows: Vec<Flow<'a, T>>, config: &InferenceConfig<
                     )
                 } else {
                     flow.source.collect_candidates(
-                        flow.target,
+                        &flow.target,
                         &flow.source_scope,
                         &flow.target_scope,
                         step.infer_candidates,
@@ -236,7 +236,7 @@ impl<T: Type> Nodety<T> {
         for &idx in chain.iter().rev() {
             let mut child_scope = Scope::new_child(&scope);
             for (local_param_id, param) in &self.program[idx].signature.parameters {
-                child_scope.define(*local_param_id, param.clone());
+                child_scope.define(*local_param_id, param.clone().into_scoped());
             }
             scope = ScopePointer::new(child_scope);
         }
@@ -270,7 +270,7 @@ impl<T: Type> Nodety<T> {
                 Scope::new_root()
             };
             for (local_param_id, param) in &node.signature.parameters {
-                scope.define(*local_param_id, param.clone());
+                scope.define(*local_param_id, param.clone().into_scoped());
             }
             scopes.insert(node_idx, ScopePointer::new(scope));
         }
@@ -288,8 +288,8 @@ impl<T: Type> Nodety<T> {
         scopes
     }
 
-    pub fn collect_flows<'a>(&'a self, scopes: &Scopes<T>) -> Vec<FlowWithMetadata<'a, T>> {
-        let mut flows: Vec<FlowWithMetadata<'a, T>> = Vec::with_capacity(self.program.edge_count());
+    pub fn collect_flows(&self, scopes: &Scopes<T>) -> Vec<FlowWithMetadata<T>> {
+        let mut flows: Vec<FlowWithMetadata<T>> = Vec::with_capacity(self.program.edge_count());
         // contains node indices with their input indices.
         let mut populated_inputs: HashSet<(NodeIndex, usize)> = HashSet::new();
 
@@ -326,8 +326,8 @@ impl<T: Type> Nodety<T> {
 
                 flows.push(FlowWithMetadata {
                     flow: Flow {
-                        source: source_port,
-                        target: target_port,
+                        source: source_port.clone().into_scoped(),
+                        target: target_port.clone().into_scoped(),
                         source_scope: ScopePointer::clone(source_scope),
                         target_scope: ScopePointer::clone(target_scope),
                     },
@@ -359,8 +359,8 @@ impl<T: Type> Nodety<T> {
                 };
                 flows.push(FlowWithMetadata {
                     flow: Flow {
-                        source: default_type,
-                        target: port,
+                        source: default_type.clone().into_scoped(),
+                        target: port.clone().into_scoped(),
                         source_scope: ScopePointer::clone(scope),
                         target_scope: ScopePointer::clone(scope),
                     },

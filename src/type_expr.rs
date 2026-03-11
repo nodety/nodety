@@ -183,6 +183,7 @@ pub type UnscopedTypeExpr<T> = TypeExpr<T, Unscoped>;
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
+#[cfg_attr(feature = "tsify", tsify(into_wasm_abi, from_wasm_abi))]
 pub enum TypeExprValidationError {
     UnknownVar(LocalParamID),
     CyclicReference,
@@ -552,8 +553,8 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
         }
 
         let flows = vec![Flow {
-            source,
-            target: self_without_params.as_ref(),
+            source: source.clone(),
+            target: self_without_params.as_ref().clone(),
             source_scope: ScopePointer::clone(source_scope),
             target_scope: ScopePointer::clone(&own_scope),
         }];

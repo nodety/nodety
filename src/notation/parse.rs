@@ -81,12 +81,12 @@ impl ParseError {
 }
 
 /// Trait for types that can be parsed from text notation (e.g. `"<T>(T) -> (T)"`).
-pub trait ParsableType
-where
-    Self: Type,
-{
+pub trait ParsableType: Type {
     fn parse<S: TypeExprScope + Clone>(input: &str) -> IResult<&str, TypeExpr<Self, S>>;
-    fn parse_operator(input: &str) -> IResult<&str, Self::Operator>;
+
+    fn parse_operator(input: &str) -> IResult<&str, Self::Operator> {
+        Err(nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Tag)))
+    }
 }
 
 fn ws0<'a, O, E: NomParseError<&'a str>, F>(inner: F) -> impl Parser<&'a str, Output = O, Error = E>
@@ -434,11 +434,6 @@ fn parse_type_hints<T: ParsableType, S: TypeExprScope>(s: &str) -> IResult<&str,
 }
 
 impl<T: ParsableType, S: TypeExprScope> NodeSignature<T, S> {
-    #[deprecated(since = "0.1.1", note = "use the FromStr trait instead")]
-    pub fn parse(input: &str) -> IResult<&str, Self> {
-        parse_node_signature(input)
-    }
-
     /// Parse the entire input as a node signature. Returns an error if parsing fails
     /// or if any input remains after parsing.
     pub fn try_parse(input: &str) -> Result<Self, ParseError> {
@@ -460,11 +455,6 @@ impl<T: ParsableType, S: TypeExprScope> NodeSignature<T, S> {
 }
 
 impl<T: ParsableType, S: TypeExprScope> TypeExpr<T, S> {
-    #[deprecated(since = "0.1.1", note = "use the FromStr trait instead")]
-    pub fn parse(input: &str) -> IResult<&str, Self> {
-        parse_type_expr(input)
-    }
-
     /// Parse the entire input as a type expression. Returns an error if parsing fails
     /// or if any input remains after parsing.
     pub fn try_parse(input: &str) -> Result<Self, ParseError> {

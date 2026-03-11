@@ -9,33 +9,19 @@ use crate::{
 };
 use std::collections::BTreeMap;
 
-/// Determines whether or not a connection between an input and output port is valid.
-pub fn is_compatible<T: Type>(
-    output: &ScopedTypeExpr<T>,
-    input: &ScopedTypeExpr<T>,
-    output_scope: Scope<T>,
-    input_scope: Scope<T>,
-) -> bool {
-    let output_scope_pointer = ScopePointer::new(output_scope);
-    let input_scope_pointer = ScopePointer::new(input_scope);
-
-    let flows = vec![Flow {
-        source: output,
-        target: input,
-        source_scope: ScopePointer::clone(&output_scope_pointer),
-        target_scope: ScopePointer::clone(&input_scope_pointer),
-    }];
-
-    infer(flows, &InferenceConfig::default());
-
-    output_scope_pointer.infer_defaults();
-    input_scope_pointer.infer_defaults();
-
-    input.supertype_of(output, &input_scope_pointer, &output_scope_pointer).is_supertype()
-}
+#[cfg(feature = "json-schema")]
+use schemars::JsonSchema;
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+#[cfg(feature = "tsify")]
+use tsify::Tsify;
 
 /// Which side of a connection is being completed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "json-schema", derive(JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(Tsify))]
+#[cfg_attr(feature = "tsify", tsify(into_wasm_abi, from_wasm_abi))]
 pub enum Side {
     /// Completing for an input port — finding outputs that can connect to it.
     Input,
@@ -45,6 +31,9 @@ pub enum Side {
 
 /// A single autocompletion candidate: a port on a node signature that is compatible.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "json-schema", derive(JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(Tsify))]
 pub struct Autocompletion<I> {
     /// Identifier of the node signature.
     pub signature_ident: I,
@@ -118,6 +107,31 @@ impl<T: Type, I: Ord + Clone> Autocomplete<T, I> {
 
         autocompletions
     }
+}
+
+/// Determines whether or not a connection between an input and output port is valid.
+pub fn is_compatible<T: Type>(
+    output: &ScopedTypeExpr<T>,
+    input: &ScopedTypeExpr<T>,
+    output_scope: Scope<T>,
+    input_scope: Scope<T>,
+) -> bool {
+    let output_scope_pointer = ScopePointer::new(output_scope);
+    let input_scope_pointer = ScopePointer::new(input_scope);
+
+    let flows = vec![Flow {
+        source: output.clone(),
+        target: input.clone(),
+        source_scope: ScopePointer::clone(&output_scope_pointer),
+        target_scope: ScopePointer::clone(&input_scope_pointer),
+    }];
+
+    infer(flows, &InferenceConfig::default());
+
+    output_scope_pointer.infer_defaults();
+    input_scope_pointer.infer_defaults();
+
+    input.supertype_of(output, &input_scope_pointer, &output_scope_pointer).is_supertype()
 }
 
 #[cfg(test)]
