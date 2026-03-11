@@ -205,9 +205,7 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
     /// Tries to remove all scope portals from the expression, leaving behind an unscoped expression.
     /// # Errors
     /// When there is at least one [ScopePortal][TypeExpr::ScopePortal] whose expression contains a type parameter.
-    pub fn try_remove_scope_portals(
-        mut self,
-    ) -> Result<UnscopedTypeExpr<T>, HasTypeParameters> {
+    pub fn try_remove_scope_portals(mut self) -> Result<UnscopedTypeExpr<T>, HasTypeParameters> {
         let mut failed = false;
         self.traverse_mut(
             &ScopePointer::new_root(),

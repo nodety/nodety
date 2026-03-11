@@ -77,10 +77,13 @@ pub enum ValidationErrorKind<T: Type> {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(
     feature = "serde",
-    serde(rename_all = "camelCase", bound(
-        serialize = "T: Serialize, T::Operator: Serialize",
-        deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>"
-    ))
+    serde(
+        rename_all = "camelCase",
+        bound(
+            serialize = "T: Serialize, T::Operator: Serialize",
+            deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>"
+        )
+    )
 )]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema"))]
@@ -165,7 +168,11 @@ impl<T: Type> Nodety<T> {
                 continue;
             };
 
-            match target_port.clone().into_scoped().supertype_of_detailed(&source_port.clone().into_scoped(), target_scope, source_scope) {
+            match target_port.clone().into_scoped().supertype_of_detailed(
+                &source_port.clone().into_scoped(),
+                target_scope,
+                source_scope,
+            ) {
                 SupertypeResult::Supertype => (),
                 SupertypeResult::Unrelated(d) => errors.push(ValidationError {
                     location: GraphLocation::Edge(edge.id().index()),
@@ -203,7 +210,11 @@ impl<T: Type> Nodety<T> {
                     continue;
                 };
 
-                match port_type.clone().into_scoped().supertype_of_detailed(&default_type.clone().into_scoped(), scope, scope) {
+                match port_type.clone().into_scoped().supertype_of_detailed(
+                    &default_type.clone().into_scoped(),
+                    scope,
+                    scope,
+                ) {
                     SupertypeResult::Supertype => (), // all ok
                     SupertypeResult::Unrelated(d) => errors.push(ValidationError {
                         location: GraphLocation::InputPort { node_idx: node_idx.index(), input_idx: *input_idx },

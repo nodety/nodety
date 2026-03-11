@@ -151,10 +151,13 @@ pub enum NoSupertypeLayerReason {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(
     feature = "serde",
-    serde(rename_all = "camelCase", bound(
-        serialize = "T: Serialize, T::Operator: Serialize",
-        deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>"
-    ))
+    serde(
+        rename_all = "camelCase",
+        bound(
+            serialize = "T: Serialize, T::Operator: Serialize",
+            deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>"
+        )
+    )
 )]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema"))]
@@ -169,10 +172,13 @@ pub struct NoSupertypeLayer<T: Type> {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(
     feature = "serde",
-    serde(rename_all = "camelCase", bound(
-        serialize = "T: Serialize, T::Operator: Serialize",
-        deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>"
-    ))
+    serde(
+        rename_all = "camelCase",
+        bound(
+            serialize = "T: Serialize, T::Operator: Serialize",
+            deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>"
+        )
+    )
 )]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema"))]

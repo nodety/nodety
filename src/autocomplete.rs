@@ -5,7 +5,7 @@ use crate::{
     nodety::inference::{Flow, InferenceConfig},
     scope::{Scope, ScopePointer},
     r#type::Type,
-    type_expr::{ScopedTypeExpr, ScopePortal, TypeExpr, node_signature::NodeSignature},
+    type_expr::{ScopePortal, ScopedTypeExpr, TypeExpr, node_signature::NodeSignature},
 };
 use std::collections::BTreeMap;
 
@@ -65,11 +65,7 @@ impl<T: Type, I: Ord + Clone> Autocomplete<T, I> {
     ///
     /// - **Input**: `expr` is the type of an input port; returns outputs from other nodes that can connect to it.
     /// - **Output**: `expr` is the type of an output port; returns inputs from other nodes that can connect from it.
-    pub fn autocomplete(
-        &self,
-        completing_for: Side,
-        expr: impl Into<ScopedTypeExpr<T>>,
-    ) -> Vec<Autocompletion<I>> {
+    pub fn autocomplete(&self, completing_for: Side, expr: impl Into<ScopedTypeExpr<T>>) -> Vec<Autocompletion<I>> {
         let expr: ScopedTypeExpr<T> = expr.into();
         let expr_scope = Scope::new_root();
 
@@ -98,10 +94,7 @@ impl<T: Type, I: Ord + Clone> Autocomplete<T, I> {
                 };
 
                 if compatible {
-                    autocompletions.push(Autocompletion {
-                        signature_ident: ident.clone(),
-                        port_idx: test_port_idx,
-                    });
+                    autocompletions.push(Autocompletion { signature_ident: ident.clone(), port_idx: test_port_idx });
                 }
             }
         }
@@ -171,22 +164,13 @@ mod tests {
         autocomplete.add_signature(4, sig("(Array<Integer>) -> ()"));
 
         let completions = autocomplete.autocomplete(Side::Input, expr("Integer"));
-        assert_eq!(
-            completions,
-            vec![Autocompletion { signature_ident: 2, port_idx: 0 }]
-        );
+        assert_eq!(completions, vec![Autocompletion { signature_ident: 2, port_idx: 0 }]);
 
         let completions = autocomplete.autocomplete(Side::Output, expr("Integer"));
-        assert_eq!(
-            completions,
-            vec![Autocompletion { signature_ident: 1, port_idx: 0 }]
-        );
+        assert_eq!(completions, vec![Autocompletion { signature_ident: 1, port_idx: 0 }]);
 
         let completions = autocomplete.autocomplete(Side::Output, expr("Array<{a: Integer}>"));
-        assert_eq!(
-            completions,
-            vec![Autocompletion { signature_ident: 3, port_idx: 0 }]
-        );
+        assert_eq!(completions, vec![Autocompletion { signature_ident: 3, port_idx: 0 }]);
 
         let completions = autocomplete.autocomplete(Side::Output, expr("Array<Integer>"));
         assert_eq!(
