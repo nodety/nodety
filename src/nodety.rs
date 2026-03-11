@@ -61,33 +61,19 @@ impl<T: Type> private::Sealed for NodeSignature<T, Unscoped> {}
 
 impl<T: Type> IntoNode<T> for NodeSignature<T, Unscoped> {
     fn into_node(self) -> Node<T, Unscoped> {
-        Node { signature: self.into(), parent: None, type_hints: TypeHints::default() }
+        Node { signature: self, parent: None, type_hints: TypeHints::default() }
     }
 }
 
 impl<T: Type> IntoNode<T> for Node<T, Unscoped> {
     fn into_node(self) -> Node<T, Unscoped> {
-        Node {
-            signature: self.signature.into(),
-            parent: self.parent,
-            type_hints: self.type_hints.into_iter().map(|(k, v)| (k, v.into())).collect(),
-        }
+        Node { signature: self.signature, parent: self.parent, type_hints: self.type_hints }
     }
 }
 
 impl<T: Type> Default for Node<T, Unscoped> {
     fn default() -> Self {
         Node { signature: NodeSignature::default(), parent: None, type_hints: TypeHints::default() }
-    }
-}
-
-impl<T: Type> From<Node<T, Unscoped>> for Node<T, ScopePortal<T>> {
-    fn from(value: Node<T, Unscoped>) -> Self {
-        Node {
-            signature: value.signature.into(),
-            parent: value.parent,
-            type_hints: value.type_hints.into_iter().map(|(k, v)| (k, v.into())).collect(),
-        }
     }
 }
 

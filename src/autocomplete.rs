@@ -80,13 +80,13 @@ impl<T: Type, I: Ord + Clone> Autocomplete<T, I> {
 
             let mut scope = Scope::new_root();
             for (param_ident, param) in &sig.parameters {
-                scope.define(*param_ident, param.clone().into());
+                scope.define(*param_ident, param.clone());
             }
 
             let test_port_count = test_ports.ports.len() + test_ports.varg.is_some() as usize;
             for test_port_idx in 0..test_port_count {
                 let Some(port_type) = test_ports.get_port_type(test_port_idx) else { continue };
-                let port_type: ScopedTypeExpr<T> = port_type.clone().into();
+                let port_type: ScopedTypeExpr<T> = port_type.clone();
 
                 let compatible = match completing_for {
                     Side::Input => is_compatible(&port_type, &expr, scope.clone(), expr_scope.clone()),
