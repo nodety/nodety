@@ -131,6 +131,7 @@ pub enum TypeExpr<T: Type, S: TypeExprScope = Unscoped> {
     ///
     /// if infer is false, this expression will not be used to collect candidates for the parameter.
     /// In the notation this is written as `!T`.
+    /// @todo: refactor this into `{ id: LocalParamID, infer: bool }`
     TypeParameter(LocalParamID, bool),
 
     NodeSignature(Box<NodeSignature<T, S>>),
