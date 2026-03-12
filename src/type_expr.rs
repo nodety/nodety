@@ -597,6 +597,20 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
             expr => Cow::Borrowed(expr),
         }
     }
+
+    /// # Returns
+    /// - `Some(Cow::Borrowed(port_types))` if `self` is already a `PortTypes` expression.
+    /// - `Some(Cow::Owned(port_types))` if `self` is not a `PortTypes` expression but can be normalized to one.
+    /// - `None` if `self` is not a `PortTypes` expression and cannot be normalized to one.
+    pub fn get_port_types(&self, scope: &ScopePointer<T>) -> Option<Cow<'_, PortTypes<T, ScopePortal<T>>>> {
+        match self {
+            Self::PortTypes(port_types) => Some(Cow::Borrowed(port_types.as_ref())),
+            other => match other.normalize(scope) {
+                Self::PortTypes(port_types) => Some(Cow::Owned(port_types.as_ref().clone())),
+                _ => None,
+            },
+        }
+    }
 }
 
 impl<T: Type, S: TypeExprScope> TypeExpr<T, S> {
