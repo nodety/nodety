@@ -113,10 +113,12 @@ pub struct Node<T: Type, S: TypeExprScope = Unscoped> {
     pub signature: NodeSignature<T, S>,
     /// Node index of the parent node if there is one.
     #[cfg_attr(feature = "json-schema", schemars(with = "usize"))]
-    #[cfg_attr(feature = "serde", serde(with = "node_index_serde"))]
+    #[cfg_attr(feature = "serde", serde(default, with = "node_index_serde"))]
+    #[cfg_attr(feature = "tsify", tsify(type = "number"))]
     pub parent: Option<NodeIndex>,
     /// These will get inferred directly before inferring anything else. Setting
     /// this is required only when inference is ambiguous. Aka rusts "type annotations needed".
+    #[cfg_attr(feature = "serde", serde(default))]
     pub type_hints: TypeHints<T, S>,
 }
 
