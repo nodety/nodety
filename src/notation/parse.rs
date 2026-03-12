@@ -206,12 +206,13 @@ fn parse_atomic_type_expr<T: ParsableType, S: TypeExprScope>(input: &str) -> IRe
 /// # Parses
 /// (type expr, default types)
 #[allow(clippy::type_complexity)]
-fn parse_atomic_type_expr_with_ports<T: ParsableType, S: TypeExprScope>(
+fn parse_sig_input_output<T: ParsableType, S: TypeExprScope>(
     input: &str,
 ) -> IResult<&str, (TypeExpr<T, S>, BTreeMap<usize, TypeExpr<T, S>>)> {
     alt((
         value((TypeExpr::Any, BTreeMap::new()), tag("Any")),
         value((TypeExpr::Never, BTreeMap::new()), tag("Never")),
+        parse_type_parameter.map(|(id, infer)| (TypeExpr::TypeParameter(id, infer), BTreeMap::new())),
         parse_port_types,
     ))
     .parse(input)
@@ -289,9 +290,9 @@ fn parse_node_signature<T: ParsableType, S: TypeExprScope>(input: &str) -> IResu
     (
         opt(parse_type_parameter_declarations),
         space0,
-        parse_atomic_type_expr_with_ports,
+        parse_sig_input_output,
         ws0(tag("->")),
-        parse_atomic_type_expr_with_ports,
+        parse_sig_input_output,
     )
         .map(|(params, _, (inputs, default_input_types), _, (outputs, _discarded_default_outputs))| NodeSignature {
             parameters: params.unwrap_or_default(),
