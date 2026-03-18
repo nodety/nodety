@@ -197,7 +197,7 @@ pub enum TypeExprValidationError {
     CyclicReference,
 }
 
-impl<T: Type> TypeExpr<T, ScopePortal<T>> {
+impl<T: Type, S: TypeExprScope> TypeExpr<T, S> {
     pub fn union_with(self, other: Self) -> Self {
         TypeExpr::Union(Box::new(self), Box::new(other))
     }
@@ -205,7 +205,9 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
     pub fn intersection_with(self, other: Self) -> Self {
         TypeExpr::Intersection(Box::new(self), Box::new(other))
     }
+}
 
+impl<T: Type> TypeExpr<T, ScopePortal<T>> {
     pub fn validate(&self, scope: &ScopePointer<T>) -> Result<(), TypeExprValidationError> {
         let mut res = Ok(());
         self.traverse(
