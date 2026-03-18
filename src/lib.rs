@@ -252,7 +252,7 @@ pub mod scope;
 mod r#type;
 pub use r#type::{NoOperator, Type};
 pub mod type_expr;
-pub use type_expr::{TypeExpr, node_signature::NodeSignature};
+pub use type_expr::{ToTypeExpr, TypeExpr, node_signature::NodeSignature};
 
 #[cfg(feature = "proptest")]
 pub mod arbitrary;

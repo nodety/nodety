@@ -34,9 +34,11 @@ pub mod keyof;
 pub mod node_signature;
 pub mod normalization;
 pub mod subtyping;
+pub mod to_type_expr;
 pub mod traversal;
 
 pub use conversions::HasScopePortals;
+pub use to_type_expr::ToTypeExpr;
 
 mod private {
     pub trait Sealed {}
