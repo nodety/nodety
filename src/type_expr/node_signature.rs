@@ -115,6 +115,12 @@ impl<T: Type, S: TypeExprScope> NodeSignature<T, S> {
     }
 }
 
+impl<T: Type> NodeSignature<T> {
+    pub fn supertype_of_all() -> Self {
+        Self { inputs: TypeExpr::Any, outputs: TypeExpr::Never, ..Default::default() }
+    }
+}
+
 impl<T: Type> NodeSignature<T, ScopePortal<T>> {
     /// Returns true if `self` could be replaced by `child` in a
     /// graph without invalidating any types. This is a convenience
