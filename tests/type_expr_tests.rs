@@ -548,7 +548,7 @@ fn test_intersection_with() {
 
 #[test]
 fn test_from_unions() {
-    let union = TypeExpr::from_unions(expr("Integer"), vec![expr("String"), expr("Float")]);
+    let union = TypeExpr::from_unions([expr("Integer"), expr("String"), expr("Float")]);
     let scope = ScopePointer::new_root();
     assert!(union.supertype_of(&expr("Integer"), &scope, &scope).is_supertype());
     assert!(union.supertype_of(&expr("String"), &scope, &scope).is_supertype());

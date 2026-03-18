@@ -144,13 +144,14 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
     /// - `fields`: if `self` is wrapped in a constructor then these are the normalized parameters.
     ///
     /// # Returns
-    /// The type representing `self[index]`. If `self` cannot be indexed with the index type, then [TypeExpr::Any] should be returned.
+    /// The type representing `self[index]`. If `self` cannot be indexed with the index type, then [TypeExpr::Any] could be returned.
+    /// At least thats what typescript does. Apply your own judgement.
     fn index(
         &self,
         _fields: Option<&BTreeMap<String, ScopedTypeExpr<Self>>>,
         _index: &ScopedTypeExpr<Self>,
     ) -> ScopedTypeExpr<Self> {
-        TypeExpr::Never
+        TypeExpr::Any
     }
 
     /// Used to evaluate `keyof Any` expressions.

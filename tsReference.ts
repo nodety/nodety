@@ -75,3 +75,7 @@ type IntersectionOfUnions = Prettify<
 type Prettify<T> = {
   [K in keyof T]: T[K];
 } & {};
+
+type ARecord = { a: number }
+// any
+type TypeIndexedWithAnInvalidType = ARecord[number];

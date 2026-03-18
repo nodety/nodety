@@ -174,19 +174,19 @@ impl Type for DemoType {
                         union_str_literals.push(None);
                     }
                 });
-                let mut indexed = union_str_literals.into_iter().map(|literal| {
+                if union_str_literals.is_empty() {
+                    return TypeExpr::Any;
+                }
+                let indexed = union_str_literals.into_iter().map(|literal| {
                     let Some(literal) = literal else {
-                        return TypeExpr::Type(Self::Unit);
+                        return TypeExpr::Any;
                     };
                     let Some(field) = fields.get(literal) else {
-                        return TypeExpr::Type(Self::Unit);
+                        return TypeExpr::Any;
                     };
                     field.clone()
                 });
-                let Some(first) = indexed.next() else {
-                    return TypeExpr::Type(Self::Unit);
-                };
-                TypeExpr::from_unions(first, indexed.collect())
+                TypeExpr::from_unions(indexed)
             }
 
             (Self::Array, Some(fields), index) => {

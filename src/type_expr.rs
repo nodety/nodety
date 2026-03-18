@@ -207,6 +207,29 @@ impl<T: Type, S: TypeExprScope> TypeExpr<T, S> {
     pub fn intersection_with(self, other: Self) -> Self {
         TypeExpr::Intersection(Box::new(self), Box::new(other))
     }
+
+    /// Creates a union from a list of types.
+    /// If the list of types is empty, returns [TypeExpr::Never].
+    pub fn from_unions(unions: impl IntoIterator<Item = Self>) -> Self {
+        let mut iter = unions.into_iter();
+        let Some(mut current) = iter.next() else {
+            return TypeExpr::Never;
+        };
+        for exp in iter {
+            current = TypeExpr::Union(Box::new(current), Box::new(exp));
+        }
+        current
+    }
+
+    /// Creates an intersection type from at least one type.
+    /// If only one type is given, returns that type.
+    pub fn from_intersections(first: Self, following: Vec<Self>) -> Self {
+        let mut current = first;
+        for exp in following {
+            current = TypeExpr::Intersection(Box::new(current), Box::new(exp));
+        }
+        current
+    }
 }
 
 impl<T: Type> TypeExpr<T, ScopePortal<T>> {
@@ -614,27 +637,5 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                 _ => None,
             },
         }
-    }
-}
-
-impl<T: Type, S: TypeExprScope> TypeExpr<T, S> {
-    /// Creates a union type from at least one type.
-    /// If only one type is given, returns that type.
-    pub fn from_unions(first: Self, following: Vec<Self>) -> Self {
-        let mut current = first;
-        for exp in following {
-            current = TypeExpr::Union(Box::new(current), Box::new(exp));
-        }
-        current
-    }
-
-    /// Creates an intersection type from at least one type.
-    /// If only one type is given, returns that type.
-    pub fn from_intersections(first: Self, following: Vec<Self>) -> Self {
-        let mut current = first;
-        for exp in following {
-            current = TypeExpr::Intersection(Box::new(current), Box::new(exp));
-        }
-        current
     }
 }
