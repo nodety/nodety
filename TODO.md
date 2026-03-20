@@ -1,6 +1,7 @@
 # Todos
+
+[ ] Mapped types
 [x] Add more tests for node signature subtyping
-[ ] Extract Union, Intersection, Conditional into own structs
 [x] Separate logic from type_expr.rs into more files
 [ ] Make a union function
 [x] Rework file structure
@@ -18,6 +19,7 @@
 [ ] Enable traverse return early?
 
 # Proptest
+
 [ ] Add proptest that a random type is supertype of itself
 [ ] Proptest normalization function.
 [ ] Add proptests to dedoup scope portals. (same semantics as non dedouped (supertyping))
