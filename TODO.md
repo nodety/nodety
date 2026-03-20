@@ -1,9 +1,11 @@
 # Todos
 
 [ ] Mapped types
+[ ] Build the official website with showcase
 [x] Add more tests for node signature subtyping
+[x] Extract Union, Intersection, Conditional into own structs
 [x] Separate logic from type_expr.rs into more files
-[ ] Make a union function
+[x] Make a union function
 [x] Rework file structure
 [ ] Add more tests for keyof
 [ ] Add more tests for index
@@ -17,6 +19,7 @@
 [ ] Test inferring from and to conditionals
 [ ] Test cyclic graphs
 [ ] Enable traverse return early?
+
 
 # Proptest
 
