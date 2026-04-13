@@ -175,10 +175,7 @@ pub enum TypeExpr<T: Type, S: TypeExprScope = Unscoped> {
     /// All types are supertypes of never.
     Never,
 
-    // Scope can only be infallible or a ScopePointer<T>.
-    // If it is infallible it will never be constructed and thus never needs to get serialized.
-    // If it is ScopePointer<T> the Serialize bound doesn't hold and serde won't be derived for Self anyway.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    // Scope can only be infallible or a ScopePortal<T>, ErasedScopePortal or Unscoped.
     ScopePortal {
         expr: Box<TypeExpr<T, S>>,
         scope: S,
