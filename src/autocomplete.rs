@@ -50,6 +50,37 @@ pub struct Autocomplete<T: Type, I: Ord + Clone> {
     available_signatures: BTreeMap<I, NodeSignature<T, ScopePortal<T>>>,
 }
 
+/// Tries to rate a target as to how likely it is to be a good match for any source.
+/// Implemented on best effort basis.
+fn rank_autocompletion_target<T: Type>(target: &ScopedTypeExpr<T>, scope: &ScopePointer<T>) -> i16 {
+    if target.is_any(scope).unwrap_or(false) {
+        // Any is a bad target because it accepts everything
+        return -100;
+    }
+    let mut score = 0;
+    target.traverse(
+        scope,
+        &mut |expr, scope, _is_tl_union| {
+            match expr {
+                // A specific type is probably a good target
+                TypeExpr::Type(_) => score += 1,
+
+                // For type parameters, rate their bound
+                TypeExpr::TypeParameter(param, _infer) => {
+                    let Some((bound, bound_scope)) = scope.lookup_bound(param) else {
+                        score -= 1;
+                        return;
+                    };
+                    score += rank_autocompletion_target(&bound, &bound_scope) - 1;
+                }
+                _ => (),
+            }
+        },
+        true,
+    );
+    score
+}
+
 impl<T: Type, I: Ord + Clone> Autocomplete<T, I> {
     /// Creates an empty autocomplete context.
     pub fn new() -> Self {
@@ -62,6 +93,7 @@ impl<T: Type, I: Ord + Clone> Autocomplete<T, I> {
     }
 
     /// Generates potential candidates that can connect to the given type expression.
+    /// Results are scored and sorted using [rank_autocompletion_target].
     ///
     /// - **Input**: `expr` is the type of an input port; returns outputs from other nodes that can connect to it.
     /// - **Output**: `expr` is the type of an output port; returns inputs from other nodes that can connect from it.
@@ -69,7 +101,8 @@ impl<T: Type, I: Ord + Clone> Autocomplete<T, I> {
         let expr: ScopedTypeExpr<T> = expr.into();
         let expr_scope = Scope::new_root();
 
-        let mut autocompletions = Vec::new();
+        // (Autocompletion, score)
+        let mut autocompletions: Vec<(Autocompletion<I>, i16)> = Vec::new();
 
         for (ident, sig) in &self.available_signatures {
             let test_ports = match completing_for {
@@ -94,12 +127,17 @@ impl<T: Type, I: Ord + Clone> Autocomplete<T, I> {
                 };
 
                 if compatible {
-                    autocompletions.push(Autocompletion { signature_ident: ident.clone(), port_idx: test_port_idx });
+                    let score = rank_autocompletion_target(&port_type, &ScopePointer::new(scope.clone()));
+
+                    autocompletions
+                        .push((Autocompletion { signature_ident: ident.clone(), port_idx: test_port_idx }, score));
                 }
             }
         }
 
-        autocompletions
+        autocompletions.sort_by_key(|(_, score)| *score);
+
+        autocompletions.into_iter().map(|(autocompletion, _)| autocompletion).collect()
     }
 }
 
