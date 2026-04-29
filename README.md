@@ -1,7 +1,7 @@
 [![Crates.io](https://img.shields.io/crates/v/nodety.svg)](https://crates.io/crates/nodety)
 [![Documentation](https://docs.rs/nodety/badge.svg)](https://docs.rs/nodety/)
-[![dependency status](https://deps.rs/repo/github/timolehnertz/nodety/status.svg)](https://deps.rs/repo/github/timolehnertz/nodety)
-[![Codecov](https://codecov.io/github/TimoLehnertz/nodety/coverage.svg?branch=master)](https://codecov.io/gh/TimoLehnertz/nodety)
+[![dependency status](https://deps.rs/repo/github/nodety/nodety/status.svg)](https://deps.rs/repo/github/timolehnertz/nodety)
+[![Codecov](https://codecov.io/github/nodety/nodety/coverage.svg?branch=master)](https://codecov.io/gh/TimoLehnertz/nodety)
 
 # Nodety
 
