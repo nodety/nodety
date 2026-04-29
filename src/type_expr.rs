@@ -235,15 +235,19 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
         self.traverse(
             scope,
             &mut |expr, scope, _is_tl_union| {
-                if let TypeExpr::TypeParameter(param, _) = expr {
-                    if scope.lookup(param).is_none() {
-                        res = Err(TypeExprValidationError::UnknownVar(*param));
-                    }
+                if let TypeExpr::TypeParameter(param, _) = expr
+                    && scope.lookup(param).is_none()
+                {
+                    res = Err(TypeExprValidationError::UnknownVar(*param));
                 }
-                if let (_, Some(own_params)) = self.extract_generic_parameters() {
-                    if let Err(CyclicReferenceError) = validate_type_parameters(own_params) {
-                        res = Err(TypeExprValidationError::CyclicReference);
-                    }
+                // Validate the parameters of every NodeSignature encountered in the
+                // tree, not just `self`'s. Without this, a cyclic param like
+                // `<T extends T>` on an inner NodeSignature would slip through and
+                // make `infer`/`normalize` recurse forever via the TypeParameter arms.
+                if let (_, Some(own_params)) = expr.extract_generic_parameters()
+                    && let Err(CyclicReferenceError) = validate_type_parameters(own_params)
+                {
+                    res = Err(TypeExprValidationError::CyclicReference);
                 }
             },
             true,

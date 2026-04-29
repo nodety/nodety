@@ -164,6 +164,9 @@ impl<T: Type> NodeSignature<T, ScopePortal<T>> {
         }
         self.inputs.validate(&scope)?;
         self.outputs.validate(&scope)?;
+        for default_type in self.default_input_types.values() {
+            default_type.validate(&scope)?;
+        }
         Ok(())
     }
 }
@@ -233,5 +236,26 @@ mod tests {
         let signature = sig("<T>(T) -> (U)");
         let result = signature.validate(&ScopePointer::new_root());
         assert_eq!(result, Err(TypeExprValidationError::UnknownVar(LocalParamID::from("U"))));
+    }
+
+    /// Cyclic params on a NESTED NodeSignature used to slip through validation
+    /// because `TypeExpr::validate` only checked the outer expr's parameters.
+    /// Without this check, `infer`/`normalize` would later recurse forever
+    /// through the `TypeParameter` arms when following the bound.
+    #[test]
+    fn test_validate_nested_sig_param_extends_itself_in_input() {
+        let signature = sig("(<#8 extends #8>() -> ()) -> ()");
+        let result = signature.validate(&ScopePointer::new_root());
+        assert_eq!(result, Err(TypeExprValidationError::CyclicReference));
+    }
+
+    /// Cyclic params on a nested NodeSignature sitting in a `default_input_types`
+    /// slot used to slip through entirely because `NodeSignature::validate` never
+    /// recursed into `default_input_types`.
+    #[test]
+    fn test_validate_nested_sig_param_extends_itself_in_default() {
+        let signature = sig("(x: Any = (<#8 extends #8>() -> ())) -> ()");
+        let result = signature.validate(&ScopePointer::new_root());
+        assert_eq!(result, Err(TypeExprValidationError::CyclicReference));
     }
 }
