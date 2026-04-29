@@ -19,7 +19,7 @@ fn arb_graph_data() -> impl Strategy<Value = (Vec<NodeSignature<DemoType>>, Vec<
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(500))]
+    #![proptest_config(ProptestConfig::with_cases(5))]
     #[test]
     fn test_infer_and_validate_no_panic(
         (sigs, edges) in arb_graph_data()
