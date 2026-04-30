@@ -2,7 +2,7 @@
 name = "nodety"
 version = "0.1.1"
 edition = "2024"
-rust-version = "1.85.0"
+rust-version = "1.88.0"
 publish = true
 license = "MIT OR Apache-2.0"
 description = "Easy to use library for node editor types, generics, inference and validation"

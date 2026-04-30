@@ -129,7 +129,7 @@
 //!
 //! ## Minimum Supported Rust Version (MSRV)
 //!
-//! The MSRV is **1.85.0** (Rust edition 2024).
+//! The MSRV is **1.88.0** (The version that stabilized let chains).
 //!
 //! ## Introduction
 //! Read this chapter first to gain an overview of the modules nodety provides.
