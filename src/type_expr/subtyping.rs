@@ -463,8 +463,7 @@ impl<T: Type> ScopedTypeExpr<T> {
                 // has more fixed ports than parent (child requires more args than parent's minimum).
                 // Child with fewer or equal fixed ports is allowed (node may receive more inputs than it has).
                 if let (Self::PortTypes(parent_in), Self::PortTypes(child_in)) = (&parent_sig.inputs, &child_sig.inputs)
-                {
-                    if parent_in.varg.is_some()
+                    && parent_in.varg.is_some()
                         && child_in.varg.is_none()
                         && child_in.ports.len() > parent_in.ports.len()
                     {
@@ -474,7 +473,6 @@ impl<T: Type> ScopedTypeExpr<T> {
                             Some(NoSupertypeLayerReason::NodeSignatureInputsVarg),
                         )));
                     }
-                }
 
                 // contravariant
                 child_sig.inputs.supertype_of_impl::<D>(&parent_sig.inputs, &child_scope, &parent_scope).map_err(

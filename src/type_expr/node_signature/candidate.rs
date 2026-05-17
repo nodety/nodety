@@ -21,8 +21,8 @@ impl<T: Type> Candidate<T> {
         type_param: &TypeParameter<T, ScopePortal<T>>,
         param_scope: &ScopePointer<T>,
     ) -> Option<Candidate<T>> {
-        if let Some(bound) = &type_param.bound {
-            if !bound.is_any(param_scope).unwrap_or(false) {
+        if let Some(bound) = &type_param.bound
+            && !bound.is_any(param_scope).unwrap_or(false) {
                 // If the bound of the parameter is not yet fully inferred than it might narrow in the future.
                 // If that happens, the candidates that are now chosen might violate the later bound.
                 // To mitigate that, candidates can only be picked for a type param if the bound of the param
@@ -37,7 +37,6 @@ impl<T: Type> Candidate<T> {
                     bound.supertype_of(&c.t, param_scope, &c.scope).is_supertype() && !c.t.could_widen(&c.scope)
                 });
             }
-        }
 
         if candidates.is_empty() {
             return None;
