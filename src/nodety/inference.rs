@@ -171,9 +171,10 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
                 };
                 for (global_param_id, candidate) in candidates {
                     if let Some(restrictions) = &config.restrictions
-                        && !restrictions.contains(&global_param_id) {
-                            continue;
-                        }
+                        && !restrictions.contains(&global_param_id)
+                    {
+                        continue;
+                    }
                     all_candidates.entry(global_param_id).or_insert_with(Vec::new).extend(candidate);
                 }
             }
