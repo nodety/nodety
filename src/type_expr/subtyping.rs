@@ -258,6 +258,7 @@ impl<T: Type> ScopedTypeExpr<T> {
                 Some(true) => Ok(()),
                 Some(false) => Err(Unrelated(D::new(parent, child.as_ref(), None))),
             },
+
             (_, Self::Never) => Ok(()),
             (parent @ Self::Never, child) => match child.is_never(&child_scope) {
                 None => Err(Unknown),
@@ -584,6 +585,9 @@ impl<T: Type> ScopedTypeExpr<T> {
                 }
                 for (ident, parent_param) in parent_parameters {
                     let Some(child_param) = child_parameters.get(ident) else {
+                        if parent_param.is_optional_in_constructor(&parent_scope) {
+                            continue;
+                        }
                         return Err(Unrelated(D::new(parent, child, Some(NoSupertypeLayerReason::ConstructorArity))));
                     };
                     parent_param.supertype_of_impl::<D>(child_param, &parent_scope, &child_scope).map_err(|e| {
@@ -600,5 +604,22 @@ impl<T: Type> ScopedTypeExpr<T> {
                 Err(Unrelated(D::new(parent.as_ref(), child.as_ref(), None)))
             }
         }
+    }
+
+    /// Determines wether or not the type is optional in a constructor.
+    ///
+    /// That is if it:
+    /// - normalizes to either a concrete [Type] that returns true for [Type::optional_in_constructor]
+    /// - or it normalizes to a union with at least one such type.
+    pub fn is_optional_in_constructor(&self, scope: &ScopePointer<T>) -> bool {
+        let mut is_optional = false;
+        self.traverse_union(scope, &mut |traversal_expr, traversal_scope| {
+            if let Some(t) = traversal_expr.normalize_to_type(traversal_scope)
+                && t.optional_in_constructor()
+            {
+                is_optional = true;
+            }
+        });
+        is_optional
     }
 }

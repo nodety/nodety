@@ -201,4 +201,8 @@ impl Type for DemoType {
             _ => TypeExpr::Any,
         }
     }
+
+    fn optional_in_constructor(&self) -> bool {
+        matches!(self, Self::Unit)
+    }
 }

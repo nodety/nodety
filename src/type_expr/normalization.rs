@@ -154,6 +154,13 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
             }
         }
     }
+
+    pub fn normalize_to_type(&self, scope: &ScopePointer<T>) -> Option<T> {
+        match self.normalize(scope) {
+            Self::Type(t) => Some(t),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]

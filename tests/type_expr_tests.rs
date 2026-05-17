@@ -656,3 +656,10 @@ fn test_demo_type_si_supertype() {
     assert!(DemoType::AnySI.supertype_of(&DemoType::AnySI));
     assert!(!si_a.supertype_of(&DemoType::AnySI));
 }
+
+#[test]
+fn test_optional_record_fields() {
+    assert!(expr("{a: Integer | Unit}").supertype_of_naive(&expr("{}")).is_supertype());
+    assert!(expr("{a: Unit}").supertype_of_naive(&expr("{}")).is_supertype());
+    assert!(!expr("{a: Integer}").supertype_of_naive(&expr("{a: Unit}")).is_supertype());
+}

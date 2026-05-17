@@ -170,4 +170,19 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
     fn keyof_node_signature(_node_signature: &NodeSignature<Self, ScopePortal<Self>>) -> ScopedTypeExpr<Self> {
         TypeExpr::Never
     }
+
+    /// # Returns
+    /// true if this type is not required in a constructor.
+    ///
+    /// Example:
+    ///
+    /// Say we have the type `A = {A: MyUndefinedType | MyIntegerType}` and `B = {}`.
+    ///
+    /// then `A` is a supertype of `B` when MyUndefinedType returns true for `optional_in_constructor`.
+    ///
+    /// The behavior can be thought of the concept of undefined in typescript. Properties
+    /// that are allowed to be undefined are entirely optional in records.
+    fn optional_in_constructor(&self) -> bool {
+        false
+    }
 }
