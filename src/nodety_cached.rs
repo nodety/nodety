@@ -159,19 +159,25 @@ impl<T: Type> NodetyCached<T> {
             if let TypeExpr::PortTypes(outputs) = &node_signature.signature.outputs { outputs.ports.len() } else { 0 };
 
         flows.retain(|flow| {
-            match exclude_input {
-                None => (),
-                Some(ExcludePorts::Index(idx)) if idx == flow.target_location.input_idx => return false,
-                Some(ExcludePorts::Vargs) if flow.target_location.input_idx > min_input_ports_len => return false,
-                _ => (),
+            if flow.target_location.node_idx == node_idx {
+                match exclude_input {
+                    None => (),
+                    Some(ExcludePorts::Index(idx)) if idx == flow.target_location.input_idx => return false,
+                    Some(ExcludePorts::Vargs) if flow.target_location.input_idx > min_input_ports_len => return false,
+                    _ => (),
+                };
+            }
+            let FlowSourceLocation::Output(flow_source_node_idx, output_idx) = flow.source_location else {
+                return true;
             };
-            let FlowSourceLocation::Output(_node_idx, output_idx) = flow.source_location else { return true };
-            match exclude_output {
-                None => (),
-                Some(ExcludePorts::Index(idx)) if idx == output_idx => return false,
-                Some(ExcludePorts::Vargs) if output_idx > min_output_ports_len => return false,
-                _ => (),
-            };
+            if flow_source_node_idx == node_idx {
+                match exclude_output {
+                    None => (),
+                    Some(ExcludePorts::Index(idx)) if idx == output_idx => return false,
+                    Some(ExcludePorts::Vargs) if output_idx > min_output_ports_len => return false,
+                    _ => (),
+                };
+            }
             true
         });
 
@@ -207,4 +213,28 @@ pub enum ExcludePorts {
     Index(usize),
     /// Excludes all vargs
     Vargs,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        demo_type::DemoType,
+        notation::parse::{expr, sig_u},
+    };
+
+    #[test]
+    pub fn test_normalize_type_from_parent() {
+        let mut nodety = NodetyCached::<DemoType>::new(InferenceStep::default_steps());
+        let map_node_idx = nodety.add_node(Node::new(sig_u("<I>(Array<I> = Array<Integer>) -> ()"))).unwrap();
+
+        let input_node_idx =
+            nodety.add_node(Node::new_child(sig_u("() -> (I)"), NodeIndex::from(map_node_idx))).unwrap();
+
+        let scope = nodety.infer_node_scope(input_node_idx, Some(ExcludePorts::Index(0)), None).unwrap();
+
+        let normalized = expr("I").normalize(&scope);
+
+        assert_eq!(normalized, expr("Integer"));
+    }
 }
