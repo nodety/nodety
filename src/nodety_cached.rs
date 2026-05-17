@@ -43,6 +43,10 @@ impl<T: Type> NodetyCached<T> {
         }
     }
 
+    pub fn from_nodety(nodety: Nodety<T>, steps: Vec<InferenceStep>) -> Self {
+        Self { nodety, config: InferenceConfig { steps, ..Default::default() }, cache: RefCell::new(None) }
+    }
+
     /// Creates a new cached nodety with estimated capacity and the given inference steps.
     pub fn with_capacity(nodes: usize, edges: usize, steps: Vec<InferenceStep>) -> Self {
         Self {
@@ -162,7 +166,7 @@ impl<T: Type> NodetyCached<T> {
                 _ => (),
             };
             let FlowSourceLocation::Output(_node_idx, output_idx) = flow.source_location else { return true };
-            match exclude_input {
+            match exclude_output {
                 None => (),
                 Some(ExcludePorts::Index(idx)) if idx == output_idx => return false,
                 Some(ExcludePorts::Vargs) if output_idx > min_output_ports_len => return false,
