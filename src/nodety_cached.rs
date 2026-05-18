@@ -163,7 +163,7 @@ impl<T: Type> NodetyCached<T> {
                 match exclude_input {
                     None => (),
                     Some(ExcludePorts::Index(idx)) if idx == flow.target_location.input_idx => return false,
-                    Some(ExcludePorts::Vargs) if flow.target_location.input_idx > min_input_ports_len => return false,
+                    Some(ExcludePorts::Vargs) if flow.target_location.input_idx >= min_input_ports_len => return false,
                     _ => (),
                 };
             }
@@ -174,7 +174,7 @@ impl<T: Type> NodetyCached<T> {
                 match exclude_output {
                     None => (),
                     Some(ExcludePorts::Index(idx)) if idx == output_idx => return false,
-                    Some(ExcludePorts::Vargs) if output_idx > min_output_ports_len => return false,
+                    Some(ExcludePorts::Vargs) if output_idx >= min_output_ports_len => return false,
                     _ => (),
                 };
             }
