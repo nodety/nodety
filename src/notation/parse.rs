@@ -6,7 +6,7 @@
 //! **A note on scopes (`S`)** Since parsers never parse the [TypeExpr::ScopePortal] variant, they can parse any `S`.
 //! For this reason all parsers are generic over S.
 #[cfg(test)]
-use crate::type_expr::ScopedTypeExpr;
+use crate::type_expr::{ScopedTypeExpr, UnscopedTypeExpr};
 use crate::{
     demo_type::{DemoOperator, DemoType, SIUnit},
     nodety::node::TypeHints,
@@ -601,6 +601,13 @@ pub(crate) fn sig_u(input: &str) -> NodeSignature<DemoType, Unscoped> {
 #[track_caller]
 pub(crate) fn expr(input: &str) -> ScopedTypeExpr<DemoType> {
     TypeExpr::<DemoType, ScopePortal<DemoType>>::from_str(input).expect(&format!("Failed to parse {input}"))
+}
+
+/// Shorthand for tests.
+#[cfg(test)]
+#[track_caller]
+pub(crate) fn expr_u(input: &str) -> UnscopedTypeExpr<DemoType> {
+    TypeExpr::<DemoType, Unscoped>::from_str(input).expect(&format!("Failed to parse {input}"))
 }
 
 /// Shorthand for tests.

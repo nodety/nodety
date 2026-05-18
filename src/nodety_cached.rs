@@ -33,6 +33,12 @@ pub struct NodetyCached<T: Type> {
     cache: RefCell<Option<Scopes<T>>>,
 }
 
+impl<T: Type> Default for NodetyCached<T> {
+    fn default() -> Self {
+        Self::new(InferenceStep::default_steps())
+    }
+}
+
 impl<T: Type> NodetyCached<T> {
     /// Creates a new cached nodety with the given inference steps.
     pub fn new(steps: Vec<InferenceStep>) -> Self {
@@ -220,8 +226,9 @@ mod tests {
     use super::*;
     use crate::{
         demo_type::DemoType,
-        notation::parse::{expr, sig_u},
+        notation::parse::{expr, expr_u, sig_u},
     };
+    use maplit::btreemap;
 
     #[test]
     pub fn test_normalize_type_from_parent() {
@@ -235,6 +242,27 @@ mod tests {
 
         let normalized = expr("I").normalize(&scope);
 
+        assert_eq!(normalized, expr("Integer"));
+    }
+
+    #[test]
+    pub fn test_normalize_ignore_varg_defaults() {
+        let mut nodety = NodetyCached::<DemoType>::default();
+        let sig = sig_u("<I>(...I) -> ()")
+            .with_default_input_types(btreemap! {0usize => expr_u("Integer"), 1usize => expr_u("Integer")});
+        let node_idx = nodety.add_node(Node::new(sig)).unwrap();
+
+        let scope = nodety.infer_node_scope(node_idx, Some(ExcludePorts::Vargs), None).unwrap();
+        let normalized = expr("I").normalize(&scope);
+        assert_eq!(normalized, expr("I"));
+
+        // Should still infer to integer because input #1 has a default
+        let scope = nodety.infer_node_scope(node_idx, Some(ExcludePorts::Index(0)), None).unwrap();
+        let normalized = expr("I").normalize(&scope);
+        assert_eq!(normalized, expr("Integer"));
+
+        let scope = nodety.infer_node_scope(node_idx, None, None).unwrap();
+        let normalized = expr("I").normalize(&scope);
         assert_eq!(normalized, expr("Integer"));
     }
 }
