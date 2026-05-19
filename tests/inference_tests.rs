@@ -440,6 +440,23 @@ fn test_validate_invalid_bounds_dont_infer_generic() {
     assert!(inferred_u.is_none());
 }
 
+///                         Element at index (optional)         
+///                          <T>                                  <U>
+///  |Array<Integer>| ----- |Array<T>             T | Unit| ---- | U      |
+#[test]
+fn test_infer_most_generic_type_from_element_at_index() {
+    let engine = graph(
+        vec![sig_u("() -> (Array<Integer>)"), sig_u("<T>(Array<T>) -> (T | Unit)"), sig_u("<U>(U) -> ()")],
+        vec![(0, 1, 0, 0), (1, 2, 0, 0)],
+    );
+    let scopes = engine.infer(&InferenceConfig::default());
+
+    let scope2 = scopes.get(&NodeIndex::from(2)).unwrap();
+
+    let (inferred_u, _) = scope2.lookup_inferred(&"U".into()).unwrap();
+    assert_eq!(expr("Integer | Unit"), inferred_u);
+}
+
 // #[test]
 // fn test_infer_outer_signature_identity() {
 //     let mut nodety = Nodety::<DemoType>::new();
