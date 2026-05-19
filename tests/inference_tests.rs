@@ -226,14 +226,13 @@ fn test_infer_variadic_from_function() {
 #[test]
 fn test_infer_closure() {
     let engine = graph(
-        vec![sig_u("<T extends Never -> Any>() -> (T)"), sig_u("((Integer, Integer) -> (Integer) | Integer) -> ()")],
+        vec![sig_u("<T extends Never -> Any>() -> (T)"), sig_u("((Integer, Integer) -> (Integer)) -> ()")],
         vec![(0, 1, 0, 0)],
     );
     // dbg!(sig("((Integer, Integer) -> (Integer) | Integer) -> ()"));
     let scopes = engine.infer(&InferenceConfig::default());
 
-    let inferred_t =
-        TypeExpr::TypeParameter(LocalParamID::from("T"), true).normalize(scopes.get(&NodeIndex::from(0)).unwrap());
+    let inferred_t = TypeExpr::TypeParameter("T".into(), true).normalize(scopes.get(&NodeIndex::from(0)).unwrap());
 
     assert_eq!(TypeExpr::NodeSignature(Box::new(sig("(Integer, Integer) -> (Integer)"))), inferred_t);
 }
