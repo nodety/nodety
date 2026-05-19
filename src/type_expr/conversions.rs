@@ -246,45 +246,6 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
         );
         self.try_into_unscoped().expect("Expected no portals to remain after removing all")
     }
-
-    fn replace_vars_by_normalized_bounds_inner(
-        mut self,
-        scope: &ScopePointer<T>,
-        seen: &mut HashSet<GlobalParameterId<T>>,
-    ) -> Self {
-        self.traverse_mut(
-            scope,
-            &mut |expr, scope: &ScopePointer<T>, _is_tl_union| {
-                if let TypeExpr::TypeParameter(param, _infer) = expr {
-                    let Some((var, param_scope)) = scope.lookup(param) else {
-                        *expr = TypeExpr::Any;
-                        return;
-                    };
-
-                    if !seen.insert(GlobalParameterId { scope: param_scope.clone(), local_id: *param }) {
-                        *expr = TypeExpr::Any;
-                        return;
-                    }
-
-                    let (bound, bound_scope) = var.get_boundary(param_scope);
-                    *expr = bound.into_owned().replace_vars_by_normalized_bounds_inner(&bound_scope, seen)
-                }
-            },
-            true,
-        );
-        self
-    }
-
-    /// Replaces all type parameters in `self` by their bounds.
-    /// The bound of a param is its inferred type or its bound or Any if neither is set.
-    ///
-    /// This is unsound but useful for displaying to a user that might not know about type variables.
-    pub fn replace_vars_by_normalized_bounds(self, scope: &ScopePointer<T>) -> UnscopedTypeExpr<T> {
-        let mut seen: HashSet<GlobalParameterId<T>> = HashSet::new();
-        self.replace_vars_by_normalized_bounds_inner(scope, &mut seen)
-            .try_into_unscoped()
-            .expect("Expected there to be no type params left after removing all")
-    }
 }
 
 impl<T: Type, S: TypeExprScope> PortTypes<T, S> {
@@ -365,30 +326,5 @@ impl<T: Type, S: TypeExprScope> NodeSignature<T, S> {
     pub(crate) fn map_scope_portals<SO: TypeExprScope>(self, mapper: &mut impl FnMut(S) -> SO) -> NodeSignature<T, SO> {
         self.try_map_scope_portals::<SO, std::convert::Infallible>(&mut |s| Ok(mapper(s)))
             .unwrap_or_else(|e| match e {})
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        notation::parse::{expr, expr_u},
-        scope::Scope,
-    };
-
-    /// Regression test:
-    /// a self-referential bound (`C extends C & Boolean`) caused traversal
-    /// to recurse into substituted bounds.
-    #[test]
-    fn replace_vars_by_bounds_handles_self_referential_bound() {
-        let recursive_bound = expr("C & Boolean");
-
-        let mut root = Scope::new_root();
-        root.define("C".into(), TypeParameter { bound: Some(recursive_bound), default: None });
-        let scope = ScopePointer::new(root);
-
-        let expr1 = TypeExpr::TypeParameter("C".into(), true);
-
-        assert_eq!(expr1.replace_vars_by_normalized_bounds(&scope), expr_u("Any & Boolean"));
     }
 }

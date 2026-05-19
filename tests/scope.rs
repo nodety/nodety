@@ -80,7 +80,7 @@ fn test_scope_infer_defaults_with_default() {
     let mut scope = Scope::<DemoType>::new_root();
     scope.define(LocalParamID(0), TypeParameter { bound: None, default: Some(expr("Integer")) });
     let scope_ptr = ScopePointer::new(scope);
-    scope_ptr.infer_defaults();
+    scope_ptr.infer_bounds();
 
     let (inferred, _) = scope_ptr.lookup_inferred(&LocalParamID(0)).unwrap();
     assert_eq!(inferred, expr("Integer"));
@@ -91,7 +91,7 @@ fn test_scope_infer_defaults_with_bound_no_default() {
     let mut scope = Scope::<DemoType>::new_root();
     scope.define(LocalParamID(0), TypeParameter { bound: Some(expr("Comparable")), default: None });
     let scope_ptr = ScopePointer::new(scope);
-    scope_ptr.infer_defaults();
+    scope_ptr.infer_bounds();
 
     let (inferred, _) = scope_ptr.lookup_inferred(&LocalParamID(0)).unwrap();
     assert_eq!(inferred, expr("Comparable"));
@@ -102,7 +102,7 @@ fn test_scope_infer_defaults_no_bound_no_default() {
     let mut scope = Scope::<DemoType>::new_root();
     scope.define(LocalParamID(0), TypeParameter::default());
     let scope_ptr = ScopePointer::new(scope);
-    scope_ptr.infer_defaults();
+    scope_ptr.infer_bounds();
 
     let (inferred, _) = scope_ptr.lookup_inferred(&LocalParamID(0)).unwrap();
     assert_eq!(inferred, TypeExpr::Any);

@@ -218,7 +218,10 @@ impl<T: Type> ScopePointer<T> {
     /// 1. Param default
     /// 2. Param bound
     /// 3. Any
-    pub fn infer_defaults(&self) {
+    /// # Returns
+    /// the number of parameters inferred
+    pub fn infer_bounds(&self) -> usize {
+        let mut inferred = 0;
         let uninferred = self.uninferred().map(|(gid, _param)| gid).collect::<Vec<_>>();
         for param_id in uninferred {
             let var = self.parameters.get(&param_id).unwrap();
@@ -230,7 +233,12 @@ impl<T: Type> ScopePointer<T> {
                 TypeExpr::Any
             };
             self.infer(&param_id, default, ScopePointer::clone(self)).expect("expected var not to be inferred yet");
+            inferred += 1;
         }
+        if let Some(parent) = &self.parent {
+            inferred += parent.infer_bounds();
+        }
+        inferred
     }
 
     pub fn lookup_scope(&self, parameter: &LocalParamID) -> Option<ScopePointer<T>> {

@@ -160,8 +160,8 @@ pub fn is_compatible<T: Type>(
 
     infer(flows, &InferenceConfig::default());
 
-    output_scope_pointer.infer_defaults();
-    input_scope_pointer.infer_defaults();
+    output_scope_pointer.infer_bounds();
+    input_scope_pointer.infer_bounds();
 
     input.supertype_of(output, &input_scope_pointer, &output_scope_pointer).is_supertype()
 }

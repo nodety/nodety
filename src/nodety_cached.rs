@@ -126,6 +126,10 @@ impl<T: Type> NodetyCached<T> {
         result
     }
 
+    pub fn discard_cache(&self) {
+        *self.cache.borrow_mut() = None;
+    }
+
     /// Validates the graph using the inferred types.
     pub fn validate(&self) -> Vec<ValidationError<T>> {
         if let Some(cached) = self.cache.borrow().as_ref() {
@@ -137,6 +141,7 @@ impl<T: Type> NodetyCached<T> {
         result
     }
 
+    /// TODO: ScopePointer allow interior mutability!!!
     /// Infers the scope of a node. Allows specifying ports to exclude from inference.
     pub fn infer_node_scope(
         &self,
