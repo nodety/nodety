@@ -1,5 +1,5 @@
 use crate::{
-    scope::{GlobalParameterId, ScopePointer, type_parameter::TypeParameter},
+    scope::{ScopePointer, type_parameter::TypeParameter},
     r#type::Type,
     type_expr::{
         ErasedScopePortal, ScopePortal, TypeExpr, TypeExprScope, Unscoped, UnscopedTypeExpr,
@@ -7,7 +7,6 @@ use crate::{
         node_signature::{NodeSignature, port_types::PortTypes, type_parameters::TypeParameters},
     },
 };
-use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HasScopePortals;
