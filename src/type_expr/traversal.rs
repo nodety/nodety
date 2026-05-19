@@ -237,14 +237,14 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
 
         match (own.as_ref(), other.as_ref()) {
             // Unions first so that during candidate collection type type type params get visited by all union variants before being looked up.
-            (Self::Union(own_a, own_b), other) => {
-                own_a.traverse_parallel(other, &own_scope, &other_scope, infer_other, walker);
-                own_b.traverse_parallel(other, &own_scope, &other_scope, infer_other, walker);
+            (Self::Union(_own_a, _own_b), _other) => {
+                // own_a.traverse_parallel(other, &own_scope, &other_scope, infer_other, walker);
+                // own_b.traverse_parallel(other, &own_scope, &other_scope, infer_other, walker);
             }
 
-            (own, Self::Union(other_a, other_b)) => {
-                own.traverse_parallel(other_a, &own_scope, &other_scope, infer_other, walker);
-                own.traverse_parallel(other_b, &own_scope, &other_scope, infer_other, walker);
+            (_own, Self::Union(_other_a, _other_b)) => {
+                // own.traverse_parallel(other_a, &own_scope, &other_scope, infer_other, walker);
+                // own.traverse_parallel(other_b, &own_scope, &other_scope, infer_other, walker);
             }
 
             (Self::Operation { a, b, operator }, other) => {
