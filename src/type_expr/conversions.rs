@@ -267,10 +267,7 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                     }
 
                     let (bound, bound_scope) = var.get_boundary(param_scope);
-                    *expr = bound
-                        .into_owned()
-                        .normalize(&bound_scope)
-                        .replace_vars_by_normalized_bounds_inner(&bound_scope, seen);
+                    *expr = bound.into_owned().replace_vars_by_normalized_bounds_inner(&bound_scope, seen)
                 }
             },
             true,
