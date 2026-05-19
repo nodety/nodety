@@ -247,7 +247,7 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
         self.try_into_unscoped().expect("Expected no portals to remain after removing all")
     }
 
-    fn replace_vars_by_bounds_inner(
+    fn replace_vars_by_normalized_bounds_inner(
         mut self,
         scope: &ScopePointer<T>,
         seen: &mut HashSet<GlobalParameterId<T>>,
@@ -267,7 +267,10 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                     }
 
                     let (bound, bound_scope) = var.get_boundary(param_scope);
-                    *expr = bound.into_owned().replace_vars_by_bounds_inner(&bound_scope, seen);
+                    *expr = bound
+                        .into_owned()
+                        .normalize(&bound_scope)
+                        .replace_vars_by_normalized_bounds_inner(&bound_scope, seen);
                 }
             },
             true,
@@ -279,9 +282,9 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
     /// The bound of a param is its inferred type or its bound or Any if neither is set.
     ///
     /// This is unsound but useful for displaying to a user that might not know about type variables.
-    pub fn replace_vars_by_bounds(self, scope: &ScopePointer<T>) -> UnscopedTypeExpr<T> {
+    pub fn replace_vars_by_normalized_bounds(self, scope: &ScopePointer<T>) -> UnscopedTypeExpr<T> {
         let mut seen: HashSet<GlobalParameterId<T>> = HashSet::new();
-        self.replace_vars_by_bounds_inner(scope, &mut seen)
+        self.replace_vars_by_normalized_bounds_inner(scope, &mut seen)
             .try_into_unscoped()
             .expect("Expected there to be no type params left after removing all")
     }
@@ -389,6 +392,6 @@ mod tests {
 
         let expr1 = TypeExpr::TypeParameter("C".into(), true);
 
-        assert_eq!(expr1.replace_vars_by_bounds(&scope), expr_u("Any & Boolean"));
+        assert_eq!(expr1.replace_vars_by_normalized_bounds(&scope), expr_u("Any & Boolean"));
     }
 }
