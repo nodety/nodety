@@ -453,8 +453,8 @@ fn test_infer_most_generic_type_from_element_at_index() {
 
     let scope2 = scopes.get(&NodeIndex::from(2)).unwrap();
 
-    let (inferred_u, _) = scope2.lookup_inferred(&"U".into()).unwrap();
-    assert_eq!(expr("Integer | Unit"), inferred_u);
+    let (inferred_u, inferred_u_scope) = scope2.lookup_inferred(&"U".into()).unwrap();
+    assert_eq!(expr("Integer | Unit"), inferred_u.normalize(&inferred_u_scope));
 }
 
 // #[test]
