@@ -1,5 +1,7 @@
+use core::fmt;
 use std::{
     collections::{HashMap, HashSet},
+    fmt::{Debug, Display},
     hash::Hash,
 };
 
@@ -12,6 +14,14 @@ pub enum SortDirection {
 #[derive(Debug)]
 pub enum NodeSortingError<ID> {
     CyclicParentRelation { cycle_node_ids: Vec<ID> },
+}
+
+impl<ID: Debug + Display> std::error::Error for NodeSortingError<ID> {}
+
+impl<ID: Debug + Display> Display for NodeSortingError<ID> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 /// Sorts nodes by the depth of their parents.
