@@ -87,6 +87,12 @@ impl<T: Type> TypeExprScope for ScopePortal<T> {}
 impl TypeExprScope for Unscoped {}
 impl TypeExprScope for ErasedScopePortal {}
 
+impl<T: Type> Into<ScopePortal<T>> for Unscoped {
+    fn into(self) -> ScopePortal<T> {
+        match self {}
+    }
+}
+
 /// Type expression—the core type representation in nodety.
 ///
 /// Can represent unions, intersections, conditional types, type variables, keyof, index access,

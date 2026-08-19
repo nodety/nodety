@@ -1,7 +1,7 @@
 use crate::{
     scope::ScopePointer,
     r#type::Type,
-    type_expr::{ErasedScopePortal, ScopedTypeExpr, TypeExpr},
+    type_expr::{ErasedScopePortal, ScopePortal, ScopedTypeExpr, TypeExpr, TypeExprScope},
 };
 use std::fmt::Debug;
 
@@ -208,29 +208,32 @@ impl<T: Type> SupertypeDiagnostics<T> for DetailedSupertypeDiagnostics<T> {
     }
 }
 
-impl<T: Type> ScopedTypeExpr<T> {
+impl<T: Type, S: TypeExprScope> TypeExpr<T, S> {
     /// More ergonomic wrapper for supertype_of if both the scope and supertype diagnostics are not important.
-    pub fn supertype_of_naive(&self, child: &ScopedTypeExpr<T>) -> SupertypeResult<NoSupertypeDiagnostics> {
+    pub fn supertype_of_naive<S2: TypeExprScope + Into<ScopePortal<T>>>(
+        &self,
+        child: &TypeExpr<T, S2>,
+    ) -> SupertypeResult<NoSupertypeDiagnostics> {
         let scope = ScopePointer::new_root();
-        self.supertype_of_impl::<NoSupertypeDiagnostics>(child, &scope, &scope).into()
+        self.supertype_of_impl::<NoSupertypeDiagnostics, S2>(child, &scope, &scope).into()
     }
 
-    pub fn supertype_of(
+    pub fn supertype_of<S2: TypeExprScope + Into<ScopePortal<T>>>(
         &self,
-        child: &ScopedTypeExpr<T>,
+        child: &TypeExpr<T, S2>,
         parent_scope: &ScopePointer<T>,
         child_scope: &ScopePointer<T>,
     ) -> SupertypeResult<NoSupertypeDiagnostics> {
-        self.supertype_of_impl::<NoSupertypeDiagnostics>(child, parent_scope, child_scope).into()
+        self.supertype_of_impl::<NoSupertypeDiagnostics, S2>(child, parent_scope, child_scope).into()
     }
 
-    pub fn supertype_of_detailed(
+    pub fn supertype_of_detailed<S2: TypeExprScope + Into<ScopePortal<T>>>(
         &self,
-        child: &ScopedTypeExpr<T>,
+        child: &TypeExpr<T, S2>,
         parent_scope: &ScopePointer<T>,
         child_scope: &ScopePointer<T>,
     ) -> SupertypeResult<DetailedSupertypeDiagnostics<T>> {
-        self.supertype_of_impl::<DetailedSupertypeDiagnostics<T>>(child, parent_scope, child_scope).into()
+        self.supertype_of_impl::<DetailedSupertypeDiagnostics<T>, S2>(child, parent_scope, child_scope).into()
     }
 
     /// Determines wether or not other is a supertype of self.
@@ -239,12 +242,16 @@ impl<T: Type> ScopedTypeExpr<T> {
     /// # Returns
     /// Result because that enables the try operator which comes in handy here.
     /// When [std::ops::Try] is stabilized, [NoSupertypeReason] could get replaced by SupertypeResult.
-    fn supertype_of_impl<D: SupertypeDiagnostics<T>>(
+    fn supertype_of_impl<D: SupertypeDiagnostics<T>, S2: TypeExprScope>(
         &self,
-        child: &Self,
+        child: &TypeExpr<T, S2>,
         parent_scope: &ScopePointer<T>,
         child_scope: &ScopePointer<T>,
-    ) -> Result<(), NoSupertypeReason<D>> {
+    ) -> Result<(), NoSupertypeReason<D>>
+    where
+        S: Into<ScopePortal<T>>,
+        S2: Into<ScopePortal<T>>,
+    {
         use NoSupertypeReason::*;
         let (parent, parent_scope) = self.build_uninferred_child_scope(parent_scope);
         // Use the parent to infer the child's types.
@@ -356,11 +363,13 @@ impl<T: Type> ScopedTypeExpr<T> {
             }
 
             (parent, Self::ScopePortal { expr, scope }) => {
-                parent.supertype_of_impl::<D>(expr, &parent_scope, &scope.portal)
+                let scope_portal: ScopePortal<T> = scope.into();
+                parent.supertype_of_impl::<D>(expr.as_ref(), &parent_scope, &scope_portal.portal)
             }
 
             (Self::ScopePortal { expr, scope }, child) => {
-                expr.supertype_of_impl::<D>(child, &scope.portal, &child_scope)
+                let scope_portal: ScopePortal<T> = scope.into();
+                expr.supertype_of_impl::<D, S>(&child, &scope_portal.portal, &child_scope)
             }
 
             (Self::Operation { a, b, operator }, child) => {
