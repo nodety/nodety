@@ -1,10 +1,10 @@
 use crate::{
     Type, TypeExpr,
     scope::ScopePointer,
-    type_expr::{ScopePortal, ScopedTypeExpr},
+    type_expr::{AsScopePortal, ScopePortal, ScopedTypeExpr},
 };
 
-impl<T: Type> TypeExpr<T, ScopePortal<T>> {
+impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
     /// Returns the keys of the constructor fields if this is a constructor or is inferred to be a constructor. None otherwise.
     /// The returned expression is guaranteed not to contain any context sensitive types.
     /// # Returns
@@ -18,7 +18,11 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
 
             Self::Constructor { inner, parameters } => {
                 // Parameters should have been normalized by caller
-                Some((inner.key_type(Some(parameters)), ScopePointer::clone(scope)))
+                let scoped_parameters: std::collections::BTreeMap<String, ScopedTypeExpr<T>> = parameters
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone())))
+                    .collect();
+                Some((inner.key_type(Some(&scoped_parameters)), ScopePointer::clone(scope)))
             }
 
             // See tsReference.ts
@@ -34,24 +38,24 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                 if keyof_b.is_never_forever(&keyof_b_scope) {
                     return Some((keyof_a, keyof_a_scope));
                 }
-                Self::intersection(&keyof_a, &keyof_b, &keyof_a_scope, &keyof_b_scope)
+                TypeExpr::intersection(&keyof_a, &keyof_b, &keyof_a_scope, &keyof_b_scope)
             }
 
             // See tsReference.ts
             // @todo test this
             Self::Intersection(a, b) => {
                 if a.is_never_forever(scope) || b.is_never_forever(scope) {
-                    return Some((Self::Never, ScopePointer::clone(scope)));
+                    return Some((TypeExpr::Never, ScopePointer::clone(scope)));
                 }
                 let (keyof_a, keyof_a_scope) = a.keyof(scope)?;
                 let (keyof_b, keyof_b_scope) = b.keyof(scope)?;
                 Some((
-                    Self::Union(
-                        Box::new(Self::ScopePortal {
+                    TypeExpr::Union(
+                        Box::new(TypeExpr::ScopePortal {
                             expr: Box::new(keyof_a),
                             scope: ScopePortal { portal: keyof_a_scope },
                         }),
-                        Box::new(Self::ScopePortal {
+                        Box::new(TypeExpr::ScopePortal {
                             expr: Box::new(keyof_b),
                             scope: ScopePortal { portal: keyof_b_scope },
                         }),
@@ -75,7 +79,7 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                 // C will get inferred using the keyof(bound of T) Even when T is not yet inferred.
                 if let Some((inferred, scope)) = scope.lookup_inferred(param) { inferred.keyof(&scope) } else { None }
             }
-            Self::ScopePortal { expr, scope } => expr.keyof(&scope.portal),
+            Self::ScopePortal { expr, scope } => expr.keyof(&scope.as_scope_portal().portal),
 
             Self::KeyOf(expr) => expr.keyof(scope),
 
@@ -87,12 +91,14 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
             Self::Any => Some((T::keyof_any(), ScopePointer::clone(scope))),
             Self::NodeSignature(node_signature) => {
                 // Customized behavior (defaults to never)
-                Some((T::keyof_node_signature(node_signature.as_ref()), ScopePointer::clone(scope)))
+                let scoped_signature =
+                    node_signature.as_ref().clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone());
+                Some((T::keyof_node_signature(&scoped_signature), ScopePointer::clone(scope)))
             }
-            Self::PortTypes(_) => Some((Self::Never, ScopePointer::clone(scope))),
+            Self::PortTypes(_) => Some((TypeExpr::Never, ScopePointer::clone(scope))),
             // @todo
-            Self::Conditional { .. } => Some((Self::Never, ScopePointer::clone(scope))),
-            Self::Never => Some((Self::Never, ScopePointer::clone(scope))),
+            Self::Conditional { .. } => Some((TypeExpr::Never, ScopePointer::clone(scope))),
+            Self::Never => Some((TypeExpr::Never, ScopePointer::clone(scope))),
         }
     }
 }

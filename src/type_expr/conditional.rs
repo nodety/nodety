@@ -1,7 +1,7 @@
 use crate::{
     scope::{LocalParamID, Scope, ScopePointer, type_parameter::TypeParameter},
     r#type::Type,
-    type_expr::{ScopePortal, ScopedTypeExpr, TypeExpr, TypeExprScope},
+    type_expr::{AsScopePortal, ScopePortal, ScopedTypeExpr, TypeExpr, TypeExprScope},
 };
 use std::{borrow::Cow, collections::HashSet};
 
@@ -39,6 +39,18 @@ pub struct Conditional<T: Type, S: TypeExprScope> {
     pub infer: HashSet<LocalParamID>,
 }
 
+impl<T: Type, S: TypeExprScope> Conditional<T, S> {
+    pub(crate) fn map_scope_portals<SO: TypeExprScope>(self, mapper: &mut impl FnMut(S) -> SO) -> Conditional<T, SO> {
+        Conditional {
+            t_test: self.t_test.map_scope_portals(mapper),
+            t_test_bound: self.t_test_bound.map_scope_portals(mapper),
+            t_then: self.t_then.map_scope_portals(mapper),
+            t_else: self.t_else.map_scope_portals(mapper),
+            infer: self.infer,
+        }
+    }
+}
+
 pub struct ConditionalDistribution<'a, T: Type> {
     pub new_t_test: Cow<'a, ScopedTypeExpr<T>>,
     pub new_t_test_scope: ScopePointer<T>,
@@ -63,7 +75,7 @@ impl<'a, T: Type> ConditionalDistribution<'a, T> {
     }
 }
 
-impl<T: Type> Conditional<T, ScopePortal<T>> {
+impl<T: Type, S: AsScopePortal<T>> Conditional<T, S> {
     /// If the conditional can get distributed, returns a union for all the distributions.
     /// If it can't get distributed, checks if `t_test_bound` ⊒ `t_test` holds and returns the
     /// appropriate branch (or non if the relation is unknown).
@@ -75,16 +87,17 @@ impl<T: Type> Conditional<T, ScopePortal<T>> {
         let (first_dist, remaining_dist) = self.build_conditional_distributions(scope);
         if remaining_dist.is_empty() {
             return match self.t_test_bound.supertype_of(&self.t_test, scope, scope) {
-                Supertype => Some(self.t_then.clone()),
-                Unrelated(_) => Some(self.t_else.clone()),
+                Supertype => Some(self.t_then.clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone())),
+                Unrelated(_) => Some(self.t_else.clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone())),
                 Unknown => return None,
             };
         }
-        let mut current = TypeExpr::Conditional(Box::new(first_dist.into_conditional(self)));
+        let scoped_self = self.clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone());
+        let mut current = TypeExpr::Conditional(Box::new(first_dist.into_conditional(&scoped_self)));
         for distribution in remaining_dist {
             current = TypeExpr::Union(
                 Box::new(current),
-                Box::new(TypeExpr::Conditional(Box::new(distribution.into_conditional(self)))),
+                Box::new(TypeExpr::Conditional(Box::new(distribution.into_conditional(&scoped_self)))),
             );
         }
         Some(current)
@@ -96,20 +109,23 @@ impl<T: Type> Conditional<T, ScopePortal<T>> {
         scope: &ScopePointer<T>,
     ) -> (ConditionalDistribution<'a, T>, Vec<ConditionalDistribution<'a, T>>) {
         let mut distributions = vec![];
-        self.t_test.traverse_union(scope, &mut |union_expr, union_expr_scope| {
+        let t_test_scoped: ScopedTypeExpr<T> =
+            self.t_test.clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone());
+        t_test_scoped.traverse_union(scope, &mut |union_expr, union_expr_scope| {
             let mut inferred_scope = Scope::new_child(scope);
+            let union_expr_scoped = union_expr.clone();
             if let TypeExpr::TypeParameter(param, _infer) = self.t_test {
                 inferred_scope.define(param, TypeParameter::default());
-                let _ = inferred_scope.infer(&param, union_expr.clone(), ScopePointer::clone(union_expr_scope));
+                let _ = inferred_scope.infer(&param, union_expr_scoped.clone(), ScopePointer::clone(union_expr_scope));
                 // println!("inferred {param:?}={union_expr:?}");
                 distributions.push(ConditionalDistribution {
-                    new_t_test: Cow::Owned(union_expr.clone()),
+                    new_t_test: Cow::Owned(union_expr_scoped),
                     new_t_test_scope: ScopePointer::clone(union_expr_scope),
                     new_then_else_scope: ScopePointer::new(inferred_scope),
                 });
             } else {
                 distributions.push(ConditionalDistribution {
-                    new_t_test: Cow::Owned(union_expr.clone()),
+                    new_t_test: Cow::Owned(union_expr_scoped),
                     new_t_test_scope: ScopePointer::clone(scope),
                     new_then_else_scope: ScopePointer::clone(union_expr_scope),
                 });

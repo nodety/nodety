@@ -1,6 +1,6 @@
 use super::ScopePointer;
 use crate::r#type::Type;
-use crate::type_expr::{ScopePortal, TypeExpr, TypeExprScope, Unscoped};
+use crate::type_expr::{AsScopePortal, ScopePortal, TypeExpr, TypeExprScope, Unscoped};
 
 #[cfg(feature = "json-schema")]
 use schemars::JsonSchema;
@@ -32,10 +32,10 @@ pub struct TypeParameter<T: Type, S: TypeExprScope = Unscoped> {
     pub default: Option<TypeExpr<T, S>>,
 }
 
-impl<T: Type> TypeParameter<T, ScopePortal<T>> {
+impl<T: Type, S: AsScopePortal<T>> TypeParameter<T, S> {
     /// Normalizes type parameters in bound and default. Returns `None` if normalization fails (e.g. uninferred vars when `any_on_uninferred` is false).
     pub fn normalize(&self, scope: &ScopePointer<T>) -> TypeParameter<T, ScopePortal<T>> {
-        Self {
+        TypeParameter {
             bound: self.bound.clone().map(|bound| bound.normalize(scope)),
             default: self.default.clone().map(|default| default.normalize(scope)),
         }

@@ -7,7 +7,7 @@ use crate::{
     scope::{LocalParamID, Scope, ScopePointer, type_parameter::TypeParameter},
     r#type::Type,
     type_expr::{
-        ScopePortal, TypeExpr, TypeExprScope, TypeExprValidationError, Unscoped,
+        AsScopePortal, ScopePortal, TypeExpr, TypeExprScope, TypeExprValidationError, Unscoped,
         node_signature::{port_types::PortTypes, type_parameters::TypeParameters},
         subtyping::{DetailedSupertypeDiagnostics, NoSupertypeDiagnostics, SupertypeResult},
     },
@@ -171,14 +171,21 @@ impl<T: Type> NodeSignature<T, ScopePortal<T>> {
     }
 }
 
-impl<T: Type> NodeSignature<T, ScopePortal<T>> {
+impl<T: Type, S: AsScopePortal<T>> NodeSignature<T, S> {
     /// Normalizes type parameters in inputs, outputs, and parameter bounds/defaults.
+    /// `default_input_types` are carried over as-is (widened, not normalized) — they get ignored for nested NodeSignatures.
     pub fn normalize(&self, scope: &ScopePointer<T>) -> NodeSignature<T, ScopePortal<T>> {
         NodeSignature {
             parameters: self.parameters.iter().map(|(ident, param)| (*ident, param.normalize(scope))).collect(),
             inputs: self.inputs.normalize(scope),
             outputs: self.outputs.normalize(scope),
-            ..self.clone()
+            default_input_types: self
+                .default_input_types
+                .iter()
+                .map(|(k, v)| (*k, v.clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone())))
+                .collect(),
+            tags: self.tags.clone(),
+            required_tags: self.required_tags.clone(),
         }
     }
 }

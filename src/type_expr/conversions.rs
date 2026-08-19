@@ -276,7 +276,7 @@ impl<T: Type, S: TypeExprScope> TypeParameter<T, S> {
         })
     }
 
-    fn map_scope_portals<SO: TypeExprScope>(self, mapper: &mut impl FnMut(S) -> SO) -> TypeParameter<T, SO> {
+    pub(crate) fn map_scope_portals<SO: TypeExprScope>(self, mapper: &mut impl FnMut(S) -> SO) -> TypeParameter<T, SO> {
         self.try_map_scope_portals::<SO, std::convert::Infallible>(&mut |s| Ok(mapper(s)))
             .unwrap_or_else(|e| match e {})
     }

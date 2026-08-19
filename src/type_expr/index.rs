@@ -1,10 +1,10 @@
 use crate::{
     Type, TypeExpr,
     scope::ScopePointer,
-    type_expr::{ScopePortal, ScopedTypeExpr},
+    type_expr::{AsScopePortal, ScopePortal, ScopedTypeExpr},
 };
 
-impl<T: Type> TypeExpr<T, ScopePortal<T>> {
+impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
     /// Computes `self[index_type]`
     ///
     /// # Returns
@@ -15,9 +15,9 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
     /// or None if
     /// - the index type is unknown due to uninferred vars.
     /// - Intersection or Union with distinct scopes.
-    pub fn index(
+    pub fn index<S2: AsScopePortal<T>>(
         &self,
-        index_type: &ScopedTypeExpr<T>,
+        index_type: &TypeExpr<T, S2>,
         own_scope: &ScopePointer<T>,
         index_scope: &ScopePointer<T>,
     ) -> Option<(ScopedTypeExpr<T>, ScopePointer<T>)> {
@@ -25,10 +25,16 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
             Self::Type(inst) => {
                 Some((inst.index(None, &index_type.normalize(index_scope)), ScopePointer::clone(own_scope)))
             }
-            Self::Constructor { inner, parameters } => Some((
-                inner.index(Some(parameters), &index_type.normalize(index_scope)),
-                ScopePointer::clone(own_scope),
-            )),
+            Self::Constructor { inner, parameters } => {
+                let scoped_parameters: std::collections::BTreeMap<String, ScopedTypeExpr<T>> = parameters
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone())))
+                    .collect();
+                Some((
+                    inner.index(Some(&scoped_parameters), &index_type.normalize(index_scope)),
+                    ScopePointer::clone(own_scope),
+                ))
+            }
 
             // see tsReference.ts
             // @todo test this
@@ -37,9 +43,15 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                 let (a_idx, a_scope) = a.index(index_type, own_scope, index_scope)?;
                 let (b_idx, b_scope) = b.index(index_type, own_scope, index_scope)?;
                 Some((
-                    Self::Union(
-                        Box::new(Self::ScopePortal { expr: Box::new(a_idx), scope: ScopePortal { portal: a_scope } }),
-                        Box::new(Self::ScopePortal { expr: Box::new(b_idx), scope: ScopePortal { portal: b_scope } }),
+                    TypeExpr::Union(
+                        Box::new(TypeExpr::ScopePortal {
+                            expr: Box::new(a_idx),
+                            scope: ScopePortal { portal: a_scope },
+                        }),
+                        Box::new(TypeExpr::ScopePortal {
+                            expr: Box::new(b_idx),
+                            scope: ScopePortal { portal: b_scope },
+                        }),
                     ),
                     ScopePointer::clone(own_scope),
                 ))
@@ -53,9 +65,15 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                 let (b_idx, b_scope) = b.index(index_type, own_scope, index_scope)?;
 
                 Some((
-                    Self::Intersection(
-                        Box::new(Self::ScopePortal { expr: Box::new(a_idx), scope: ScopePortal { portal: a_scope } }),
-                        Box::new(Self::ScopePortal { expr: Box::new(b_idx), scope: ScopePortal { portal: b_scope } }),
+                    TypeExpr::Intersection(
+                        Box::new(TypeExpr::ScopePortal {
+                            expr: Box::new(a_idx),
+                            scope: ScopePortal { portal: a_scope },
+                        }),
+                        Box::new(TypeExpr::ScopePortal {
+                            expr: Box::new(b_idx),
+                            scope: ScopePortal { portal: b_scope },
+                        }),
                     ),
                     ScopePointer::clone(own_scope),
                 ))
@@ -80,15 +98,15 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                     None
                 }
             }
-            Self::ScopePortal { expr, scope } => expr.index(index_type, &scope.portal, index_scope),
+            Self::ScopePortal { expr, scope } => expr.index(index_type, &scope.as_scope_portal().portal, index_scope),
             // These can't be indexed.
-            Self::NodeSignature(_) => Some((Self::Any, ScopePointer::clone(own_scope))),
-            Self::PortTypes(_) => Some((Self::Any, ScopePointer::clone(own_scope))),
-            Self::Conditional { .. } => Some((Self::Any, ScopePointer::clone(own_scope))),
-            Self::Any => Some((Self::Any, ScopePointer::clone(own_scope))),
-            Self::Index { .. } => Some((Self::Any, ScopePointer::clone(own_scope))),
-            Self::KeyOf(_) => Some((Self::Any, ScopePointer::clone(own_scope))),
-            Self::Never => Some((Self::Any, ScopePointer::clone(own_scope))),
+            Self::NodeSignature(_) => Some((TypeExpr::Any, ScopePointer::clone(own_scope))),
+            Self::PortTypes(_) => Some((TypeExpr::Any, ScopePointer::clone(own_scope))),
+            Self::Conditional { .. } => Some((TypeExpr::Any, ScopePointer::clone(own_scope))),
+            Self::Any => Some((TypeExpr::Any, ScopePointer::clone(own_scope))),
+            Self::Index { .. } => Some((TypeExpr::Any, ScopePointer::clone(own_scope))),
+            Self::KeyOf(_) => Some((TypeExpr::Any, ScopePointer::clone(own_scope))),
+            Self::Never => Some((TypeExpr::Any, ScopePointer::clone(own_scope))),
         }
     }
 }

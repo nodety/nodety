@@ -1,11 +1,11 @@
 use crate::{
     scope::ScopePointer,
     r#type::Type,
-    type_expr::{ScopePortal, ScopedTypeExpr, TypeExpr, conditional::Conditional},
+    type_expr::{AsScopePortal, ScopePortal, ScopedTypeExpr, TypeExpr, conditional::Conditional},
 };
 use std::collections::BTreeMap;
 
-impl<T: Type> TypeExpr<T, ScopePortal<T>> {
+impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
     /// Same as [normalize](Self::normalize) but for types that aren't context sensitive.
     pub fn normalize_naive(&self) -> ScopedTypeExpr<T> {
         self.normalize(&ScopePointer::new_root())
@@ -18,12 +18,12 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
         let (_, scope) = self.build_uninferred_child_scope(scope);
 
         match self {
-            Self::Any => Self::Any,
-            Self::Never => Self::Never,
+            Self::Any => TypeExpr::Any,
+            Self::Never => TypeExpr::Never,
 
             Self::KeyOf(expr) => {
                 let Some((key, key_scope)) = expr.keyof(&scope) else {
-                    return Self::KeyOf(Box::new(expr.normalize(&scope)));
+                    return TypeExpr::KeyOf(Box::new(expr.normalize(&scope)));
                 };
                 key.normalize(&key_scope)
             }
@@ -54,10 +54,10 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                     return a.normalize(&scope);
                 }
                 if a.is_any_forever(&scope) || b.is_any_forever(&scope) {
-                    return Self::Any;
+                    return TypeExpr::Any;
                 }
 
-                Self::Union(Box::new(a.normalize(&scope)), Box::new(b.normalize(&scope)))
+                TypeExpr::Union(Box::new(a.normalize(&scope)), Box::new(b.normalize(&scope)))
             }
 
             Self::Intersection(a, b) => {
@@ -77,16 +77,16 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                     return a.normalize(&scope);
                 }
                 if a.is_never_forever(&scope) || b.is_never_forever(&scope) {
-                    return Self::Never;
+                    return TypeExpr::Never;
                 }
-                if let Some((intersection, intersection_scope)) = Self::intersection(a, b, &scope, &scope) {
+                if let Some((intersection, intersection_scope)) = TypeExpr::intersection(a, b, &scope, &scope) {
                     intersection.normalize(&intersection_scope)
                 } else {
-                    Self::Intersection(Box::new(a.normalize(&scope)), Box::new(b.normalize(&scope)))
+                    TypeExpr::Intersection(Box::new(a.normalize(&scope)), Box::new(b.normalize(&scope)))
                 }
             }
 
-            Self::Type(_) => self.clone(),
+            Self::Type(t) => TypeExpr::Type(t.clone()),
 
             Self::Conditional(conditional) => {
                 if let Some(distributed) = conditional.distribute(&scope) {
@@ -103,30 +103,30 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
 
             Self::Constructor { inner, parameters } => {
                 if parameters.is_empty() {
-                    return Self::Type(inner.clone());
+                    return TypeExpr::Type(inner.clone());
                 }
                 let mut normalized_params: BTreeMap<String, TypeExpr<T, ScopePortal<T>>> = BTreeMap::new();
                 for (ident, param) in parameters {
                     normalized_params.insert(ident.clone(), param.normalize(&scope));
                 }
-                Self::Constructor { inner: inner.clone(), parameters: normalized_params }
+                TypeExpr::Constructor { inner: inner.clone(), parameters: normalized_params }
             }
 
-            Self::NodeSignature(sig) => Self::NodeSignature(Box::new(sig.normalize(&scope))),
+            Self::NodeSignature(sig) => TypeExpr::NodeSignature(Box::new(sig.normalize(&scope))),
 
-            Self::PortTypes(ports) => Self::PortTypes(Box::new(ports.normalize(&scope))),
+            Self::PortTypes(ports) => TypeExpr::PortTypes(Box::new(ports.normalize(&scope))),
 
-            Self::TypeParameter(param, _infer) => {
+            Self::TypeParameter(param, infer) => {
                 if let Some((inferred, inferred_scope)) = scope.lookup_inferred(param) {
                     inferred.normalize(&inferred_scope)
                 } else {
-                    self.clone()
+                    TypeExpr::TypeParameter(*param, *infer)
                 }
             }
 
             Self::Index { expr, index } => {
                 let Some((index_type, index_scope)) = expr.index(index, &scope, &scope) else {
-                    return Self::Index {
+                    return TypeExpr::Index {
                         expr: Box::new(expr.normalize(&scope)),
                         index: Box::new(index.normalize(&scope)),
                     };
@@ -134,7 +134,8 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                 index_type.normalize(&index_scope)
             }
 
-            Self::ScopePortal { expr, scope: ScopePortal { portal } } => {
+            Self::ScopePortal { expr, scope: field_scope } => {
+                let portal = &field_scope.as_scope_portal().portal;
                 // Normalize beforehand so that `normalized_expr.contains_type_param` is checked after params got resolved.
                 let normalized_expr = expr.normalize(portal);
                 // If the portal teleports to the same scope as we're in already it has no effect and can be removed.
@@ -146,7 +147,7 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                     // remove the portal
                     normalized_expr
                 } else {
-                    Self::ScopePortal {
+                    TypeExpr::ScopePortal {
                         expr: Box::new(normalized_expr),
                         scope: ScopePortal { portal: ScopePointer::clone(portal) },
                     }
@@ -157,7 +158,7 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
 
     pub fn normalize_to_type(&self, scope: &ScopePointer<T>) -> Option<T> {
         match self.normalize(scope) {
-            Self::Type(t) => Some(t),
+            TypeExpr::Type(t) => Some(t),
             _ => None,
         }
     }

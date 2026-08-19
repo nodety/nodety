@@ -6,7 +6,7 @@ use nodety::{
     demo_type::DemoType,
     inference::{InferenceConfig, Scopes},
     scope::LocalParamID,
-    type_expr::TypeExpr,
+    type_expr::{ScopePortal, TypeExpr},
     validation::{ValidationError, ValidationErrorKind},
 };
 use petgraph::graph::NodeIndex;
@@ -303,11 +303,11 @@ fn test_inference_and_validation_cyclic_graph() {
     let errors = engine.validate(&scopes);
     assert!(errors.is_empty(), "cyclic graph should infer and validate: {:?}", errors);
 
-    let inferred_t =
-        TypeExpr::TypeParameter(LocalParamID::from("T"), true).normalize(scopes.get(&NodeIndex::from(1)).unwrap());
+    let inferred_t = TypeExpr::<DemoType, ScopePortal<DemoType>>::TypeParameter(LocalParamID::from("T"), true)
+        .normalize(scopes.get(&NodeIndex::from(1)).unwrap());
     assert_eq!(expr("Integer"), inferred_t, "T in cycle node A should infer to Integer");
 
-    let inferred_t_b =
-        TypeExpr::TypeParameter(LocalParamID::from("T"), true).normalize(scopes.get(&NodeIndex::from(2)).unwrap());
+    let inferred_t_b = TypeExpr::<DemoType, ScopePortal<DemoType>>::TypeParameter(LocalParamID::from("T"), true)
+        .normalize(scopes.get(&NodeIndex::from(2)).unwrap());
     assert_eq!(expr("Integer"), inferred_t_b, "T in cycle node B should infer to Integer");
 }

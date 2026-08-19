@@ -87,9 +87,23 @@ impl<T: Type> TypeExprScope for ScopePortal<T> {}
 impl TypeExprScope for Unscoped {}
 impl TypeExprScope for ErasedScopePortal {}
 
-impl<T: Type> Into<ScopePortal<T>> for Unscoped {
-    fn into(self) -> ScopePortal<T> {
-        match self {}
+/// A [TypeExprScope] that can be viewed as a [ScopePortal] by reference, letting functions work
+/// with either [Unscoped] or `Scoped` [TypeExpr]s
+pub trait AsScopePortal<T: Type>: TypeExprScope + PartialEq {
+    fn as_scope_portal(&self) -> &ScopePortal<T>;
+}
+
+impl<T: Type> AsScopePortal<T> for ScopePortal<T> {
+    fn as_scope_portal(&self) -> &ScopePortal<T> {
+        self
+    }
+}
+
+impl<T: Type> AsScopePortal<T> for Unscoped {
+    fn as_scope_portal(&self) -> &ScopePortal<T> {
+        match *self {
+            // Never
+        }
     }
 }
 
@@ -232,6 +246,218 @@ impl<T: Type, S: TypeExprScope> TypeExpr<T, S> {
             current = TypeExpr::Intersection(Box::new(current), Box::new(exp));
         }
         current
+    }
+}
+
+/// Functions that work with both scoped and unscoped [TypeExpr]'s.
+impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
+    /// Returns the parameters of the TypeExpr if it has any.
+    /// Currently only NodeSignatures have type parameters
+    #[allow(clippy::type_complexity)]
+    pub fn extract_generic_parameters<'a>(
+        &'a self,
+    ) -> (Cow<'a, Self>, Option<&'a BTreeMap<LocalParamID, TypeParameter<T, S>>>) {
+        match self {
+            Self::NodeSignature(sig) if !sig.parameters.is_empty() => (
+                Cow::Owned(TypeExpr::NodeSignature(Box::new(NodeSignature {
+                    parameters: TypeParameters::default(),
+                    ..*sig.clone()
+                }))),
+                Some(&*sig.parameters),
+            ),
+            _ => (Cow::Borrowed(self), None),
+        }
+    }
+
+    /// # Returns
+    /// `None` if self references an uninferred type parameter that prevents detecting never.
+    /// `Some(true)` if self is and wil always be never.
+    /// `Some(false)` if self is and will never be never.
+    pub fn is_never(&self, scope: &ScopePointer<T>) -> Option<bool> {
+        match self {
+            Self::Type(_) => Some(false),
+            Self::Union(a, b) => Some(a.is_never(scope)? && b.is_never(scope)?),
+            Self::Intersection(a, b) => {
+                if a.is_never(scope).unwrap_or(false) || b.is_never(scope).unwrap_or(false) {
+                    return Some(true);
+                }
+                let (intersection, scope) = TypeExpr::intersection(a, b, scope, scope)?;
+                intersection.is_never(&scope)
+            }
+            Self::Operation { a, b, operator } => {
+                let a = a.normalize(scope);
+                let b = b.normalize(scope);
+                T::operation(&a, operator, &b).is_never(scope)
+            }
+            Self::NodeSignature(_) => Some(false),
+            Self::PortTypes(_) => Some(false),
+            Self::Constructor { .. } => Some(false),
+            Self::KeyOf(expr) => {
+                let (key, key_scope) = expr.keyof(scope)?;
+                key.is_never(&key_scope)
+            }
+            Self::Conditional(conditional) => conditional.distribute(scope)?.is_never(scope),
+            Self::TypeParameter(param, _infer) => {
+                let (registered, param_scope) = scope.lookup(param)?;
+                if let Some((inferred, inferred_scope)) = registered.inferred() {
+                    return inferred.is_never(&inferred_scope);
+                }
+                let (boundary, boundary_scope) = registered.get_boundary(param_scope);
+                if boundary.is_never(&boundary_scope).unwrap_or(false) {
+                    return Some(true);
+                }
+                None
+            }
+            // is_never(scope) is okay here because the result of index() must be in the same scope as expr.
+            Self::Index { expr, index } => {
+                let (index_type, index_scope) = expr.index(index, scope, scope)?;
+                index_type.is_never(&index_scope)
+            }
+
+            Self::ScopePortal { expr, scope } => expr.is_never(&scope.as_scope_portal().portal),
+
+            Self::Any => Some(false),
+            Self::Never => Some(true),
+        }
+    }
+
+    /// # Returns
+    /// `None` if self references an uninferred type parameter that prevents detecting any.
+    /// `Some(true)` if self is and will always be any.
+    /// `Some(false)` if self is not and will never be any.
+    pub fn is_any(&self, scope: &ScopePointer<T>) -> Option<bool> {
+        match self {
+            Self::Type(_) => Some(false),
+            Self::Union(a, b) => Some(a.is_any(scope)? || b.is_any(scope)?),
+            Self::Intersection(a, b) => {
+                if a.is_any(scope).unwrap_or(false) && b.is_any(scope).unwrap_or(false) {
+                    return Some(true);
+                }
+                let (intersection, scope) = TypeExpr::intersection(a, b, scope, scope)?;
+                intersection.is_any(&scope)
+            }
+            Self::Operation { a, b, operator } => {
+                let a = a.normalize(scope);
+                let b = b.normalize(scope);
+                T::operation(&a, operator, &b).is_any(scope)
+            }
+            Self::NodeSignature(_) => Some(false),
+            Self::PortTypes(_) => Some(false),
+            Self::Constructor { .. } => Some(false),
+            Self::KeyOf(expr) => {
+                let (key, key_scope) = expr.keyof(scope)?;
+                key.is_any(&key_scope)
+            }
+
+            Self::Conditional(conditional) => conditional.distribute(scope)?.is_any(scope),
+
+            Self::TypeParameter(param, _infer) => {
+                let (inferred, inferred_scope) = scope.lookup_inferred(param)?;
+                inferred.is_any(&inferred_scope)
+            }
+
+            Self::ScopePortal { expr, scope } => expr.is_any(&scope.as_scope_portal().portal),
+
+            // is_never(scope) is okay here because the result
+            // of index() must be in the same scope as expr.
+            Self::Index { expr, index } => {
+                let (index_type, index_scope) = expr.index(index, scope, scope)?;
+                index_type.is_any(&index_scope)
+            }
+            Self::Any => Some(true),
+            Self::Never => Some(false),
+        }
+    }
+
+    /// Builds an uninferred child scope for `self` with all parameters of `self` if it has any.
+    /// # Returns
+    /// - `self` without parameters. Removing the parameters is necessary when performing
+    ///   inference because if they don't get removed here, they could get inferred again later.
+    /// - the uninferred scope for `self`
+    pub fn build_uninferred_child_scope<'a>(&'a self, scope: &ScopePointer<T>) -> (Cow<'a, Self>, ScopePointer<T>) {
+        let (without_params, params) = self.extract_generic_parameters();
+        let Some(params) = params else {
+            return (without_params, ScopePointer::clone(scope));
+        };
+        let mut child_scope = Scope::new_child(scope);
+        for (ident, param) in params {
+            child_scope.define(*ident, param.clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone()));
+        }
+        (without_params, ScopePointer::new(child_scope))
+    }
+
+    /// If `self` has parameters, they will be attempted to be inferred from `source`.
+    /// # Returns
+    /// - `self` without parameters. Removing the parameters is necessary when performing
+    ///   inference because if they don't get removed here, they could get inferred again later.
+    /// - the inferred scope for `self`
+    pub fn build_inferred_child_scope<'a, S2: AsScopePortal<T>>(
+        &'a self,
+        source: &TypeExpr<T, S2>,
+        own_scope: &ScopePointer<T>,
+        source_scope: &ScopePointer<T>,
+    ) -> (Cow<'a, Self>, ScopePointer<T>) {
+        let (self_without_params, own_params) = self.extract_generic_parameters();
+        let Some(own_params) = own_params else {
+            return (self_without_params, ScopePointer::clone(own_scope));
+        };
+
+        let mut to_infer = HashSet::new();
+
+        let mut own_scope = Scope::new_child(own_scope);
+        for (ident, param) in own_params {
+            own_scope.define(*ident, param.clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone()));
+        }
+        let own_scope = ScopePointer::new(own_scope);
+        for ident in own_params.keys() {
+            to_infer.insert(GlobalParameterId { scope: ScopePointer::clone(&own_scope), local_id: *ident });
+        }
+
+        let flows = vec![Flow {
+            source: source.clone().map_scope_portals(&mut |s: S2| s.as_scope_portal().clone()),
+            target: self_without_params.as_ref().clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone()),
+            source_scope: ScopePointer::clone(source_scope),
+            target_scope: ScopePointer::clone(&own_scope),
+        }];
+        let config = InferenceConfig {
+            restrictions: Some(to_infer),
+            steps: vec![
+                // Infer candidates must be false here because if it is not than type
+                // parameters in source might get inferred to type parameters in self
+                // during candidate collection. When that happens the cycle detection
+                // will prevent the variable in own_scope from ever getting inferred.
+                InferenceStep {
+                    direction: InferenceDirection::Forward,
+                    allow_uninferred: false,
+                    infer_candidates: false,
+                    // These have to get ignored here
+                    ignore_excluded: true,
+                },
+                InferenceStep {
+                    direction: InferenceDirection::Forward,
+                    allow_uninferred: true,
+                    infer_candidates: false,
+                    ignore_excluded: true,
+                },
+            ],
+            ..Default::default()
+        };
+        infer(flows, &config);
+        (self_without_params, own_scope)
+    }
+
+    /// # Returns
+    /// `true` if `self` is and will always be never.
+    /// `false` if `self` is either not never but could turn into never when more params get inferred.
+    pub fn is_never_forever(&self, scope: &ScopePointer<T>) -> bool {
+        self.is_never(scope).unwrap_or(false)
+    }
+
+    /// # Returns
+    /// `true` if `self` is and will always be any.
+    /// `false` if `self` is either not any but could turn into any when more params get inferred.
+    pub fn is_any_forever(&self, scope: &ScopePointer<T>) -> bool {
+        self.is_any(scope).unwrap_or(false)
     }
 }
 
@@ -383,24 +609,6 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
         contains
     }
 
-    /// Returns the parameters of the TypeExpr if it has any.
-    /// Currently only NodeSignatures have type parameters
-    #[allow(clippy::type_complexity)]
-    pub fn extract_generic_parameters<'a>(
-        &'a self,
-    ) -> (Cow<'a, Self>, Option<&'a BTreeMap<LocalParamID, TypeParameter<T, ScopePortal<T>>>>) {
-        match self {
-            Self::NodeSignature(sig) if !sig.parameters.is_empty() => (
-                Cow::Owned(TypeExpr::NodeSignature(Box::new(NodeSignature {
-                    parameters: TypeParameters::default(),
-                    ..*sig.clone()
-                }))),
-                Some(&*sig.parameters),
-            ),
-            _ => (Cow::Borrowed(self), None),
-        }
-    }
-
     /// Most type expressions can't widen. They only get narrower when parameters get inferred.
     ///
     /// The only exception to this are conditional types. When the test or test bound gets inferred, that
@@ -424,197 +632,6 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
             true,
         );
         could_widen
-    }
-
-    /// # Returns
-    /// `true` if `self` is and will always be never.
-    /// `false` if `self` is either not never but could turn into never when more params get inferred.
-    pub fn is_never_forever(&self, scope: &ScopePointer<T>) -> bool {
-        self.is_never(scope).unwrap_or(false)
-    }
-
-    /// # Returns
-    /// `None` if self references an uninferred type parameter that prevents detecting never.
-    /// `Some(true)` if self is and wil always be never.
-    /// `Some(false)` if self is and will never be never.
-    pub fn is_never(&self, scope: &ScopePointer<T>) -> Option<bool> {
-        match self {
-            Self::Type(_) => Some(false),
-            Self::Union(a, b) => Some(a.is_never(scope)? && b.is_never(scope)?),
-            Self::Intersection(a, b) => {
-                if a.is_never(scope).unwrap_or(false) || b.is_never(scope).unwrap_or(false) {
-                    return Some(true);
-                }
-                let (intersection, scope) = Self::intersection(a, b, scope, scope)?;
-                intersection.is_never(&scope)
-            }
-            Self::Operation { a, b, operator } => {
-                let a = a.normalize(scope);
-                let b = b.normalize(scope);
-                T::operation(&a, operator, &b).is_never(scope)
-            }
-            Self::NodeSignature(_) => Some(false),
-            Self::PortTypes(_) => Some(false),
-            Self::Constructor { .. } => Some(false),
-            Self::KeyOf(expr) => {
-                let (key, key_scope) = expr.keyof(scope)?;
-                key.is_never(&key_scope)
-            }
-            Self::Conditional(conditional) => conditional.distribute(scope)?.is_never(scope),
-            Self::TypeParameter(param, _infer) => {
-                let (registered, param_scope) = scope.lookup(param)?;
-                if let Some((inferred, inferred_scope)) = registered.inferred() {
-                    return inferred.is_never(&inferred_scope);
-                }
-                let (boundary, boundary_scope) = registered.get_boundary(param_scope);
-                if boundary.is_never(&boundary_scope).unwrap_or(false) {
-                    return Some(true);
-                }
-                None
-            }
-            // is_never(scope) is okay here because the result of index() must be in the same scope as expr.
-            Self::Index { expr, index } => {
-                let (index_type, index_scope) = expr.index(index, scope, scope)?;
-                index_type.is_never(&index_scope)
-            }
-
-            Self::ScopePortal { expr, scope } => expr.is_never(&scope.portal),
-
-            Self::Any => Some(false),
-            Self::Never => Some(true),
-        }
-    }
-
-    /// # Returns
-    /// `true` if `self` is and will always be any.
-    /// `false` if `self` is either not any but could turn into any when more params get inferred.
-    pub fn is_any_forever(&self, scope: &ScopePointer<T>) -> bool {
-        self.is_any(scope).unwrap_or(false)
-    }
-
-    /// # Returns
-    /// `None` if self references an uninferred type parameter that prevents detecting any.
-    /// `Some(true)` if self is and will always be any.
-    /// `Some(false)` if self is not and will never be any.
-    pub fn is_any(&self, scope: &ScopePointer<T>) -> Option<bool> {
-        match self {
-            Self::Type(_) => Some(false),
-            Self::Union(a, b) => Some(a.is_any(scope)? || b.is_any(scope)?),
-            Self::Intersection(a, b) => {
-                if a.is_any(scope).unwrap_or(false) && b.is_any(scope).unwrap_or(false) {
-                    return Some(true);
-                }
-                let (intersection, scope) = Self::intersection(a, b, scope, scope)?;
-                intersection.is_any(&scope)
-            }
-            Self::Operation { a, b, operator } => {
-                let a = a.normalize(scope);
-                let b = b.normalize(scope);
-                T::operation(&a, operator, &b).is_any(scope)
-            }
-            Self::NodeSignature(_) => Some(false),
-            Self::PortTypes(_) => Some(false),
-            Self::Constructor { .. } => Some(false),
-            Self::KeyOf(expr) => {
-                let (key, key_scope) = expr.keyof(scope)?;
-                key.is_any(&key_scope)
-            }
-
-            Self::Conditional(conditional) => conditional.distribute(scope)?.is_any(scope),
-
-            Self::TypeParameter(param, _infer) => {
-                let (inferred, inferred_scope) = scope.lookup_inferred(param)?;
-                inferred.is_any(&inferred_scope)
-            }
-
-            Self::ScopePortal { expr, scope } => expr.is_any(&scope.portal),
-
-            // is_never(scope) is okay here because the result
-            // of index() must be in the same scope as expr.
-            Self::Index { expr, index } => {
-                let (index_type, index_scope) = expr.index(index, scope, scope)?;
-                index_type.is_any(&index_scope)
-            }
-            Self::Any => Some(true),
-            Self::Never => Some(false),
-        }
-    }
-
-    /// Builds an uninferred child scope for `self` with all parameters of `self` if it has any.
-    /// # Returns
-    /// - `self` without parameters. Removing the parameters is necessary when performing
-    ///   inference because if they don't get removed here, they could get inferred again later.
-    /// - the uninferred scope for `self`
-    pub fn build_uninferred_child_scope<'a>(&'a self, scope: &ScopePointer<T>) -> (Cow<'a, Self>, ScopePointer<T>) {
-        let (without_params, params) = self.extract_generic_parameters();
-        let Some(params) = params else {
-            return (without_params, ScopePointer::clone(scope));
-        };
-        let mut child_scope = Scope::new_child(scope);
-        for (ident, param) in params {
-            child_scope.define(*ident, param.clone());
-        }
-        (without_params, ScopePointer::new(child_scope))
-    }
-
-    /// If `self` has parameters, they will be attempted to be inferred from `source`.
-    /// # Returns
-    /// - `self` without parameters. Removing the parameters is necessary when performing
-    ///   inference because if they don't get removed here, they could get inferred again later.
-    /// - the inferred scope for `self`
-    pub fn build_inferred_child_scope<'a>(
-        &'a self,
-        source: &Self,
-        own_scope: &ScopePointer<T>,
-        source_scope: &ScopePointer<T>,
-    ) -> (Cow<'a, Self>, ScopePointer<T>) {
-        let (self_without_params, own_params) = self.extract_generic_parameters();
-        let Some(own_params) = own_params else {
-            return (self_without_params, ScopePointer::clone(own_scope));
-        };
-
-        let mut to_infer = HashSet::new();
-
-        let mut own_scope = Scope::new_child(own_scope);
-        for (ident, param) in own_params {
-            own_scope.define(*ident, param.clone());
-        }
-        let own_scope = ScopePointer::new(own_scope);
-        for ident in own_params.keys() {
-            to_infer.insert(GlobalParameterId { scope: ScopePointer::clone(&own_scope), local_id: *ident });
-        }
-
-        let flows = vec![Flow {
-            source: source.clone(),
-            target: self_without_params.as_ref().clone(),
-            source_scope: ScopePointer::clone(source_scope),
-            target_scope: ScopePointer::clone(&own_scope),
-        }];
-        let config = InferenceConfig {
-            restrictions: Some(to_infer),
-            steps: vec![
-                // Infer candidates must be false here because if it is not than type
-                // parameters in source might get inferred to type parameters in self
-                // during candidate collection. When that happens the cycle detection
-                // will prevent the variable in own_scope from ever getting inferred.
-                InferenceStep {
-                    direction: InferenceDirection::Forward,
-                    allow_uninferred: false,
-                    infer_candidates: false,
-                    // These have to get ignored here
-                    ignore_excluded: true,
-                },
-                InferenceStep {
-                    direction: InferenceDirection::Forward,
-                    allow_uninferred: true,
-                    infer_candidates: false,
-                    ignore_excluded: true,
-                },
-            ],
-            ..Default::default()
-        };
-        infer(flows, &config);
-        (self_without_params, own_scope)
     }
 
     /// If the root expression does not have any parameters, returns a borrowed

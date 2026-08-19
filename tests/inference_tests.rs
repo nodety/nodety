@@ -6,7 +6,7 @@ use nodety::{
     demo_type::DemoType,
     inference::{InferenceConfig, InferenceStep},
     scope::LocalParamID,
-    type_expr::TypeExpr,
+    type_expr::{ScopePortal, TypeExpr},
 };
 use petgraph::graph::NodeIndex;
 
@@ -217,8 +217,8 @@ fn test_infer_variadic_from_function() {
     );
     let scopes = engine.infer(&InferenceConfig::default());
 
-    let inferred_t =
-        TypeExpr::TypeParameter(LocalParamID::from("T"), true).normalize(scopes.get(&NodeIndex::from(1)).unwrap());
+    let inferred_t = TypeExpr::<DemoType, ScopePortal<DemoType>>::TypeParameter(LocalParamID::from("T"), true)
+        .normalize(scopes.get(&NodeIndex::from(1)).unwrap());
 
     assert_eq!(inferred_t, Type(Integer));
 }
@@ -232,7 +232,8 @@ fn test_infer_closure() {
     // dbg!(sig("((Integer, Integer) -> (Integer) | Integer) -> ()"));
     let scopes = engine.infer(&InferenceConfig::default());
 
-    let inferred_t = TypeExpr::TypeParameter("T".into(), true).normalize(scopes.get(&NodeIndex::from(0)).unwrap());
+    let inferred_t = TypeExpr::<DemoType, ScopePortal<DemoType>>::TypeParameter("T".into(), true)
+        .normalize(scopes.get(&NodeIndex::from(0)).unwrap());
 
     assert_eq!(TypeExpr::NodeSignature(Box::new(sig("(Integer, Integer) -> (Integer)"))), inferred_t);
 }
@@ -274,8 +275,8 @@ fn test_infer_from_keyof() {
     );
     let scopes = engine.infer(&InferenceConfig::default());
 
-    let inferred_u =
-        TypeExpr::TypeParameter(LocalParamID::from("U"), true).normalize(scopes.get(&NodeIndex::from(2)).unwrap());
+    let inferred_u = TypeExpr::<DemoType, ScopePortal<DemoType>>::TypeParameter(LocalParamID::from("U"), true)
+        .normalize(scopes.get(&NodeIndex::from(2)).unwrap());
 
     assert_eq!(expr("Integer"), inferred_u);
 }
@@ -290,7 +291,8 @@ fn test_infer_from_nested_keyof() {
     );
     let scopes = engine.infer(&InferenceConfig::default());
 
-    let inferred_1 = TypeExpr::TypeParameter(LocalParamID(1), true).normalize(scopes.get(&NodeIndex::from(2)).unwrap());
+    let inferred_1 = TypeExpr::<DemoType, ScopePortal<DemoType>>::TypeParameter(LocalParamID(1), true)
+        .normalize(scopes.get(&NodeIndex::from(2)).unwrap());
 
     assert_eq!(expr("Integer"), inferred_1);
 }
@@ -312,7 +314,8 @@ fn test_infer_from_index() {
     );
     let scopes = engine.infer(&InferenceConfig::default());
 
-    let inferred_1 = TypeExpr::TypeParameter(LocalParamID(1), true).normalize(scopes.get(&NodeIndex::from(0)).unwrap());
+    let inferred_1 = TypeExpr::<DemoType, ScopePortal<DemoType>>::TypeParameter(LocalParamID(1), true)
+        .normalize(scopes.get(&NodeIndex::from(0)).unwrap());
 
     assert_eq!(expr("Integer"), inferred_1);
 }
@@ -344,8 +347,8 @@ fn test_infer_from_ternary() {
     );
     let scopes = engine.infer(&InferenceConfig::default());
 
-    let inferred_t =
-        TypeExpr::TypeParameter(LocalParamID::from("K"), true).normalize(scopes.get(&NodeIndex::from(5)).unwrap());
+    let inferred_t = TypeExpr::<DemoType, ScopePortal<DemoType>>::TypeParameter(LocalParamID::from("K"), true)
+        .normalize(scopes.get(&NodeIndex::from(5)).unwrap());
 
     assert_eq!(expr("'false-starts' | 'DQT'"), inferred_t);
 }
@@ -362,8 +365,8 @@ fn test_si_division() {
     );
     let scopes = engine.infer(&InferenceConfig::default());
 
-    let inferred_t =
-        TypeExpr::TypeParameter(LocalParamID::from("T"), true).normalize(scopes.get(&NodeIndex::from(1)).unwrap());
+    let inferred_t = TypeExpr::<DemoType, ScopePortal<DemoType>>::TypeParameter(LocalParamID::from("T"), true)
+        .normalize(scopes.get(&NodeIndex::from(1)).unwrap());
 
     assert_eq!(expr("SI(1,-1,1)"), inferred_t);
 }
@@ -378,8 +381,8 @@ fn test_infer_during_candidate_collection() {
     let engine = graph(vec![sig_u("() -> (<T>(T) -> (T))"), sig_u("<U>((U) -> (Integer)) -> ()")], vec![(0, 1, 0, 0)]);
     let scopes = engine.infer(&InferenceConfig::default());
 
-    let inferred_u =
-        TypeExpr::TypeParameter(LocalParamID::from("U"), true).normalize(scopes.get(&NodeIndex::from(1)).unwrap());
+    let inferred_u = TypeExpr::<DemoType, ScopePortal<DemoType>>::TypeParameter(LocalParamID::from("U"), true)
+        .normalize(scopes.get(&NodeIndex::from(1)).unwrap());
 
     assert_eq!(expr("Integer"), inferred_u);
 
@@ -397,8 +400,8 @@ fn test_infer_during_candidate_collection() {
         ..Default::default()
     });
 
-    let inferred_u =
-        TypeExpr::TypeParameter(LocalParamID::from("U"), true).normalize(scopes.get(&NodeIndex::from(1)).unwrap());
+    let inferred_u = TypeExpr::<DemoType, ScopePortal<DemoType>>::TypeParameter(LocalParamID::from("U"), true)
+        .normalize(scopes.get(&NodeIndex::from(1)).unwrap());
 
     assert_eq!(expr("T"), inferred_u);
 }

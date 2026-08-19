@@ -4,7 +4,7 @@
 use crate::{
     scope::ScopePointer,
     r#type::Type,
-    type_expr::{ScopePortal, TypeExpr, TypeExprScope, Unscoped},
+    type_expr::{AsScopePortal, ScopePortal, TypeExpr, TypeExprScope, Unscoped},
 };
 #[cfg(feature = "json-schema")]
 use schemars::JsonSchema;
@@ -80,9 +80,9 @@ impl<'a, T: Type, S: TypeExprScope> IntoIterator for &'a mut PortTypes<T, S> {
     }
 }
 
-impl<T: Type> PortTypes<T, ScopePortal<T>> {
-    pub fn normalize(&self, scope: &ScopePointer<T>) -> Self {
-        Self {
+impl<T: Type, S: AsScopePortal<T>> PortTypes<T, S> {
+    pub fn normalize(&self, scope: &ScopePointer<T>) -> PortTypes<T, ScopePortal<T>> {
+        PortTypes {
             ports: self.ports.clone().into_iter().map(|port| port.normalize(scope)).collect(),
             varg: self.varg.clone().map(|varg| varg.normalize(scope)),
         }

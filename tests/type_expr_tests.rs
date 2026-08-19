@@ -3,7 +3,7 @@ use maplit::hashset;
 use nodety::{
     demo_type::DemoType,
     scope::{LocalParamID, Scope, ScopePointer, type_parameter::TypeParameter},
-    type_expr::{TypeExpr, subtyping::SupertypeResult},
+    type_expr::{ScopePortal, TypeExpr, subtyping::SupertypeResult},
 };
 use std::str::FromStr;
 
@@ -238,7 +238,7 @@ fn test_intersection_never_right() {
 fn test_intersection_constructor_and_type_same_inner() {
     let scope = ScopePointer::<DemoType>::new_root();
     let constructor = expr("{a: Integer}");
-    let plain_type: TypeExpr<DemoType, _> = TypeExpr::Type(DemoType::Record);
+    let plain_type: TypeExpr<DemoType, ScopePortal<DemoType>> = TypeExpr::Type(DemoType::Record);
     let (result, _) = TypeExpr::intersection(&constructor, &plain_type, &scope, &scope).unwrap();
     assert_eq!(result.normalize(&scope), expr("{a: Integer}"));
 }
@@ -247,7 +247,7 @@ fn test_intersection_constructor_and_type_same_inner() {
 fn test_intersection_type_and_constructor_same_inner() {
     let scope = ScopePointer::<DemoType>::new_root();
     let constructor = expr("{a: Integer}");
-    let plain_type: TypeExpr<DemoType, _> = TypeExpr::Type(DemoType::Record);
+    let plain_type: TypeExpr<DemoType, ScopePortal<DemoType>> = TypeExpr::Type(DemoType::Record);
     let (result, _) = TypeExpr::intersection(&plain_type, &constructor, &scope, &scope).unwrap();
     assert_eq!(result.normalize(&scope), expr("{a: Integer}"));
 }
@@ -372,7 +372,8 @@ fn test_normalize_intersection_supertype_narrowing() {
 fn test_normalize_constructor_empty_params_to_type() {
     use maplit::btreemap;
     let scope = ScopePointer::<DemoType>::new_root();
-    let constructor: TypeExpr<DemoType, _> = TypeExpr::Constructor { inner: DemoType::Array, parameters: btreemap! {} };
+    let constructor: TypeExpr<DemoType, ScopePortal<DemoType>> =
+        TypeExpr::Constructor { inner: DemoType::Array, parameters: btreemap! {} };
     assert_eq!(constructor.normalize(&scope), TypeExpr::Type(DemoType::Array));
 }
 
@@ -476,6 +477,24 @@ fn test_supertype_detailed_diagnostics() {
 fn test_supertype_node_signature_vs_non_signature() {
     assert!(!expr("(Integer) -> (String)").supertype_of_naive(&expr("Integer")).is_supertype());
     assert!(!expr("Integer").supertype_of_naive(&expr("(Integer) -> (String)")).is_supertype());
+}
+
+#[test]
+fn test_supertype_unscoped_vs_unscoped() {
+    assert!(expr_u("Integer | String").supertype_of_naive(&expr_u("Integer")).is_supertype());
+    assert!(!expr_u("Integer").supertype_of_naive(&expr_u("String")).is_supertype());
+}
+
+#[test]
+fn test_supertype_scoped_vs_unscoped() {
+    assert!(expr("Integer | String").supertype_of_naive(&expr_u("Integer")).is_supertype());
+    assert!(!expr("Integer").supertype_of_naive(&expr_u("String")).is_supertype());
+}
+
+#[test]
+fn test_supertype_unscoped_vs_scoped() {
+    assert!(expr_u("Integer | String").supertype_of_naive(&expr("Integer")).is_supertype());
+    assert!(!expr_u("Integer").supertype_of_naive(&expr("String")).is_supertype());
 }
 
 // ── Conversion tests ────────────────────────────────────────────────────────
