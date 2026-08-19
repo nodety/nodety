@@ -179,7 +179,7 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
                 }
             }
             if !step.allow_uninferred {
-                for (_gid, candidates) in all_candidates.iter_mut() {
+                for candidates in all_candidates.values_mut() {
                     candidates.retain(|candidate| !candidate.t.contains_uninferred(&candidate.scope));
                 }
             }
