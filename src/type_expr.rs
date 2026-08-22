@@ -206,6 +206,30 @@ pub type ScopedTypeExpr<T> = TypeExpr<T, ScopePortal<T>>;
 
 pub type UnscopedTypeExpr<T> = TypeExpr<T, Unscoped>;
 
+impl<T: Type, S: TypeExprScope> From<NodeSignature<T, S>> for TypeExpr<T, S> {
+    fn from(node_signature: NodeSignature<T, S>) -> Self {
+        TypeExpr::NodeSignature(Box::new(node_signature))
+    }
+}
+
+impl<T: Type, S: TypeExprScope> From<PortTypes<T, S>> for TypeExpr<T, S> {
+    fn from(port_types: PortTypes<T, S>) -> Self {
+        TypeExpr::PortTypes(Box::new(port_types))
+    }
+}
+
+impl<T: Type, S: TypeExprScope> From<Conditional<T, S>> for TypeExpr<T, S> {
+    fn from(conditional: Conditional<T, S>) -> Self {
+        TypeExpr::Conditional(Box::new(conditional))
+    }
+}
+
+impl<T: Type, S: TypeExprScope> From<T> for TypeExpr<T, S> {
+    fn from(t: T) -> Self {
+        TypeExpr::Type(t)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
