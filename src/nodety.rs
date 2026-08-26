@@ -41,7 +41,6 @@ mod private {
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
-#[cfg_attr(feature = "tsify", tsify(into_wasm_abi, from_wasm_abi))]
 #[derive(Debug, Clone)]
 pub struct Edge {
     pub source_port: usize,
@@ -88,7 +87,6 @@ impl<T: Type> From<NodeSignature<T, Unscoped>> for Node<T, ScopePortal<T>> {
 #[cfg_attr(feature = "serde", serde(tag = "type", content = "error"))]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
-#[cfg_attr(feature = "tsify", tsify(into_wasm_abi, from_wasm_abi))]
 pub enum NodetyError {
     NodeHasChildren,
     ParentNotFound,

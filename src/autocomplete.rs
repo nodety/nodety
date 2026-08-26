@@ -21,7 +21,6 @@ use tsify::Tsify;
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
-#[cfg_attr(feature = "tsify", tsify(into_wasm_abi, from_wasm_abi))]
 pub enum Side {
     /// Completing for an input port — finding outputs that can connect to it.
     Input,

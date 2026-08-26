@@ -217,7 +217,6 @@ impl<T: Type> NodetyCached<T> {
 #[cfg_attr(feature = "serde", serde(tag = "type", content = "index"))]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
-#[cfg_attr(feature = "tsify", tsify(into_wasm_abi, from_wasm_abi))]
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub enum ExcludePorts {
     /// Excludes the port at the given index

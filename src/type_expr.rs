@@ -235,7 +235,6 @@ impl<T: Type, S: TypeExprScope> From<T> for TypeExpr<T, S> {
 #[cfg_attr(feature = "serde", serde(tag = "type", content = "var"))]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
-#[cfg_attr(feature = "tsify", tsify(into_wasm_abi, from_wasm_abi))]
 pub enum TypeExprValidationError {
     UnknownVar(LocalParamID),
     CyclicReference,
