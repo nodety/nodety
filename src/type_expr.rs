@@ -64,17 +64,19 @@ impl<T: Type> PartialEq for ScopePortal<T> {
 }
 
 /// In the future this could contain information about the portal scope.
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
-#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "tsify", tsify(type = "{ readonly __brand: 'erased-scope-portal' }"))]
 pub struct ErasedScopePortal;
 
 /// crate local version of [std::convert::Infallible]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "tsify", tsify(type = "{ readonly __brand: 'foo' }"))]
 pub enum Unscoped {
     // Never add a variant here!
 }
