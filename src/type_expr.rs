@@ -76,7 +76,7 @@ pub struct ErasedScopePortal;
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
-#[cfg_attr(feature = "tsify", tsify(type = "{ readonly __brand: 'foo' }"))]
+#[cfg_attr(feature = "tsify", tsify(type = "{ readonly __brand: 'unscoped' }"))]
 pub enum Unscoped {
     // Never add a variant here!
 }
