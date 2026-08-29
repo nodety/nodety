@@ -135,10 +135,9 @@ impl<T: Type, R: TypeRef> TypeExpr<T, R> {
                 expr: Box::new(expr.try_map_refs_mut(mapper)?),
                 index: Box::new(index.try_map_refs_mut(mapper)?),
             },
-            Self::Intersection(a, b) => TypeExpr::Intersection(
-                Box::new(a.try_map_refs_mut(mapper)?),
-                Box::new(b.try_map_refs_mut(mapper)?),
-            ),
+            Self::Intersection(a, b) => {
+                TypeExpr::Intersection(Box::new(a.try_map_refs_mut(mapper)?), Box::new(b.try_map_refs_mut(mapper)?))
+            }
             Self::Conditional(conditional) => TypeExpr::Conditional(Box::new(Conditional {
                 t_test: conditional.t_test.try_map_refs_mut(mapper)?,
                 t_test_bound: conditional.t_test_bound.try_map_refs_mut(mapper)?,
