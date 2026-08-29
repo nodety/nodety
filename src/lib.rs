@@ -1,6 +1,7 @@
 // GlobalParameterId is keyed by Rc pointer identity (ptr_eq / as_ptr),
 // so interior mutability of the pointee is irrelevant.
 #![allow(clippy::mutable_key_type)]
+#![recursion_limit = "256"]
 
 //! # Nodety
 //!

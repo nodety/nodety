@@ -52,7 +52,10 @@ impl Default for GraphLocation {
     )
 )]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
-#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema"))]
+#[cfg_attr(
+    feature = "json-schema",
+    schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, crate::type_expr::ErasedScopedTypeRef<T>: JsonSchema")
+)]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
 pub enum ValidationErrorKind<T: Type> {
     /// The inferred type for a type parameter is no child type of the parameter bound
@@ -86,7 +89,10 @@ pub enum ValidationErrorKind<T: Type> {
     )
 )]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
-#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema"))]
+#[cfg_attr(
+    feature = "json-schema",
+    schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, crate::type_expr::ErasedScopedTypeRef<T>: JsonSchema")
+)]
 /// A validation error with its location and kind.
 #[cfg_attr(feature = "tsify", derive(Tsify))]
 pub struct ValidationError<T: Type> {

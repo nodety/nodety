@@ -173,11 +173,11 @@ pub enum NoSupertypeLayerReason {
         )
     )
 )]
+#[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(
     feature = "json-schema",
     schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, ErasedScopedTypeRef<T>: JsonSchema")
 )]
-#[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct NoSupertypeLayer<T: Type> {
@@ -197,11 +197,11 @@ pub struct NoSupertypeLayer<T: Type> {
         )
     )
 )]
+#[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(
     feature = "json-schema",
     schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, ErasedScopedTypeRef<T>: JsonSchema")
 )]
-#[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct DetailedSupertypeDiagnostics<T: Type> {

@@ -132,6 +132,11 @@ impl<T: Type> ScopedTypeRef<T> {
         )
     )
 )]
+#[cfg_attr(feature = "json-schema", derive(JsonSchema))]
+#[cfg_attr(
+    feature = "json-schema",
+    schemars(bound = "T: JsonSchema, T::Operator: JsonSchema")
+)]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
 pub enum ErasedScopedTypeRef<T: Type> {
     Param(ParamRef),
