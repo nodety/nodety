@@ -99,13 +99,24 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
                 }
             }
             Self::ScopePortal { expr, scope } => expr.index(index_type, &scope.as_scope_portal().portal, index_scope),
+
+            // Resolve the inner access first, then index into whatever it produced, so that
+            // chained accesses like `{a: {b: Integer}}['a']['b']` evaluate all the way down.
+            // Mirrors how [Self::keyof] treats the same two variants.
+            Self::Index { expr, index } => {
+                let (inner, inner_scope) = expr.index(index, own_scope, own_scope)?;
+                inner.index(index_type, &inner_scope, index_scope)
+            }
+            Self::KeyOf(expr) => {
+                let (keys, keys_scope) = expr.keyof(own_scope)?;
+                keys.index(index_type, &keys_scope, index_scope)
+            }
+
             // These can't be indexed.
             Self::NodeSignature(_) => Some((TypeExpr::Any, ScopePointer::clone(own_scope))),
             Self::PortTypes(_) => Some((TypeExpr::Any, ScopePointer::clone(own_scope))),
             Self::Conditional { .. } => Some((TypeExpr::Any, ScopePointer::clone(own_scope))),
             Self::Any => Some((TypeExpr::Any, ScopePointer::clone(own_scope))),
-            Self::Index { .. } => Some((TypeExpr::Any, ScopePointer::clone(own_scope))),
-            Self::KeyOf(_) => Some((TypeExpr::Any, ScopePointer::clone(own_scope))),
             Self::Never => Some((TypeExpr::Any, ScopePointer::clone(own_scope))),
         }
     }

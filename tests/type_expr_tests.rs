@@ -407,6 +407,43 @@ fn test_normalize_index() {
 }
 
 #[test]
+fn test_normalize_nested_index() {
+    let scope = ScopePointer::<DemoType>::new_root();
+    let inner = expr("{a: {b: Integer}}['a']");
+
+    // Sanity: one level of indexing resolves, and `keyof` over that same expression resolves too.
+    assert_eq!(inner.normalize(&scope), expr("{b: Integer}"));
+    assert_eq!(TypeExpr::KeyOf(Box::new(inner.clone())).normalize(&scope), expr("'b'"));
+
+    // And indexing into it resolves too.
+    let nested = TypeExpr::Index { expr: Box::new(inner), index: Box::new(expr("'b'")) };
+    assert_eq!(nested.normalize(&scope), expr("Integer"));
+
+    // Three levels deep, to pin that the inner access is resolved recursively rather than unwrapped once.
+    let deep = TypeExpr::Index {
+        expr: Box::new(TypeExpr::Index {
+            expr: Box::new(expr("{a: {b: {c: String}}}['a']")),
+            index: Box::new(expr("'b'")),
+        }),
+        index: Box::new(expr("'c'")),
+    };
+    assert_eq!(deep.normalize(&scope), expr("String"));
+}
+
+/// A chained index whose inner access can not be resolved yet is left unevaluated, the same way a
+/// single `T['a']` on an uninferred `T` already was. It used to collapse to `Any` unconditionally.
+#[test]
+fn test_normalize_nested_index_uninferred() {
+    let scope = ScopePointer::new(Scope::<DemoType>::try_parse("<T>").unwrap());
+
+    let single = expr("T['a']");
+    assert_eq!(single.normalize(&scope), single);
+
+    let nested = TypeExpr::Index { expr: Box::new(single.clone()), index: Box::new(expr("'b'")) };
+    assert_eq!(nested.normalize(&scope), nested);
+}
+
+#[test]
 fn test_normalize_keyof() {
     let scope = ScopePointer::<DemoType>::new_root();
     assert_eq!(expr("keyof {a: Integer}").normalize(&scope), expr("'a'"));
