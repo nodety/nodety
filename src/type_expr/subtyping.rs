@@ -1,7 +1,9 @@
 use crate::{
     scope::ScopePointer,
     r#type::Type,
-    type_expr::{AsScopePortal, ErasedScopePortal, ScopePortal, ScopedTypeExpr, TypeExpr, TypeExprScope},
+    type_expr::{
+        AsScopedRef, NoRef, ParamRef, ParameterizedTypeExpr, ScopedRefView, ScopedTypeExpr, ScopedTypeRef, TypeExpr,
+    },
 };
 use std::fmt::Debug;
 
@@ -77,24 +79,23 @@ impl<Diagnostics> NoSupertypeReason<Diagnostics> {
     }
 }
 
-/// `new`/`add_layer` are generic over the scope of `parent`/`child` so that diagnostics can be
-/// built directly from whatever scope kind is being compared (scoped or unscoped), without the
-/// hot comparison path in [supertype_of_impl] ever needing to widen either side upfront. Erasing
-/// down to [ErasedScopePortal] is a single [TypeExpr::map_scope_portals] pass regardless of the
-/// input scope, so no extra conversion step is needed.
+/// `new`/`add_layer` are generic over the reference kind of `parent`/`child` so that diagnostics
+/// can be built directly from whatever kind is being compared, without the hot comparison path in
+/// [supertype_of_impl] ever needing to widen either side upfront. Diagnostics keep type parameter
+/// references (so they stay printable) but drop scope portals, which makes them serializable.
 pub trait SupertypeDiagnostics<T: Type>: Debug {
-    fn new<Sp: TypeExprScope, Sc: TypeExprScope>(
-        parent: &TypeExpr<T, Sp>,
-        child: &TypeExpr<T, Sc>,
+    fn new<Rp: AsScopedRef<T>, Rc: AsScopedRef<T>>(
+        parent: &TypeExpr<T, Rp>,
+        child: &TypeExpr<T, Rc>,
         reason: Option<NoSupertypeLayerReason>,
     ) -> Self;
 
     fn new_empty() -> Self;
 
-    fn add_layer<Sp: TypeExprScope, Sc: TypeExprScope>(
+    fn add_layer<Rp: AsScopedRef<T>, Rc: AsScopedRef<T>>(
         self,
-        parent: &TypeExpr<T, Sp>,
-        child: &TypeExpr<T, Sc>,
+        parent: &TypeExpr<T, Rp>,
+        child: &TypeExpr<T, Rc>,
         reason: Option<NoSupertypeLayerReason>,
     ) -> Self;
 }
@@ -103,9 +104,9 @@ pub trait SupertypeDiagnostics<T: Type>: Debug {
 pub struct NoSupertypeDiagnostics;
 
 impl<T: Type> SupertypeDiagnostics<T> for NoSupertypeDiagnostics {
-    fn new<Sp: TypeExprScope, Sc: TypeExprScope>(
-        _parent: &TypeExpr<T, Sp>,
-        _child: &TypeExpr<T, Sc>,
+    fn new<Rp: AsScopedRef<T>, Rc: AsScopedRef<T>>(
+        _parent: &TypeExpr<T, Rp>,
+        _child: &TypeExpr<T, Rc>,
         _reason: Option<NoSupertypeLayerReason>,
     ) -> Self {
         NoSupertypeDiagnostics
@@ -115,10 +116,10 @@ impl<T: Type> SupertypeDiagnostics<T> for NoSupertypeDiagnostics {
         Self
     }
 
-    fn add_layer<Sp: TypeExprScope, Sc: TypeExprScope>(
+    fn add_layer<Rp: AsScopedRef<T>, Rc: AsScopedRef<T>>(
         self,
-        _parent: &TypeExpr<T, Sp>,
-        _child: &TypeExpr<T, Sc>,
+        _parent: &TypeExpr<T, Rp>,
+        _child: &TypeExpr<T, Rc>,
         _reason: Option<NoSupertypeLayerReason>,
     ) -> Self {
         // Discard data
@@ -177,8 +178,8 @@ pub enum NoSupertypeLayerReason {
 #[cfg_attr(feature = "tsify", derive(Tsify))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct NoSupertypeLayer<T: Type> {
-    pub parent: TypeExpr<T, ErasedScopePortal>,
-    pub child: TypeExpr<T, ErasedScopePortal>,
+    pub parent: ParameterizedTypeExpr<T>,
+    pub child: ParameterizedTypeExpr<T>,
     pub reason: Option<NoSupertypeLayerReason>,
 }
 
@@ -202,15 +203,15 @@ pub struct DetailedSupertypeDiagnostics<T: Type> {
 }
 
 impl<T: Type> SupertypeDiagnostics<T> for DetailedSupertypeDiagnostics<T> {
-    fn new<Sp: TypeExprScope, Sc: TypeExprScope>(
-        parent: &TypeExpr<T, Sp>,
-        child: &TypeExpr<T, Sc>,
+    fn new<Rp: AsScopedRef<T>, Rc: AsScopedRef<T>>(
+        parent: &TypeExpr<T, Rp>,
+        child: &TypeExpr<T, Rc>,
         reason: Option<NoSupertypeLayerReason>,
     ) -> Self {
         Self {
             layers: vec![NoSupertypeLayer {
-                parent: parent.clone().map_scope_portals(&mut |_| ErasedScopePortal),
-                child: child.clone().map_scope_portals(&mut |_| ErasedScopePortal),
+                parent: parent.clone().into_scoped().force_remove_scope_portals(),
+                child: child.clone().into_scoped().force_remove_scope_portals(),
                 reason,
             }],
         }
@@ -220,53 +221,53 @@ impl<T: Type> SupertypeDiagnostics<T> for DetailedSupertypeDiagnostics<T> {
         Self { layers: vec![] }
     }
 
-    fn add_layer<Sp: TypeExprScope, Sc: TypeExprScope>(
+    fn add_layer<Rp: AsScopedRef<T>, Rc: AsScopedRef<T>>(
         mut self,
-        parent: &TypeExpr<T, Sp>,
-        child: &TypeExpr<T, Sc>,
+        parent: &TypeExpr<T, Rp>,
+        child: &TypeExpr<T, Rc>,
         reason: Option<NoSupertypeLayerReason>,
     ) -> Self {
         self.layers.push(NoSupertypeLayer {
-            parent: parent.clone().map_scope_portals(&mut |_| ErasedScopePortal),
-            child: child.clone().map_scope_portals(&mut |_| ErasedScopePortal),
+            parent: parent.clone().into_scoped().force_remove_scope_portals(),
+            child: child.clone().into_scoped().force_remove_scope_portals(),
             reason,
         });
         self
     }
 }
 
-impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
+impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
     /// More ergonomic wrapper for supertype_of if both the scope and supertype diagnostics are not important.
     ///
-    /// Generic over the scope of both `self` and `child` independently (each may be scoped or
-    /// unscoped): only the actual [`TypeExpr::ScopePortal`] nodes encountered while comparing get
-    /// widened, so comparing two already-scoped expressions costs nothing extra.
-    pub fn supertype_of_naive<S2: AsScopePortal<T>>(
+    /// Generic over the reference kind of both `self` and `child` independently: only the actual
+    /// scope portals encountered while comparing get widened, so comparing two already-scoped
+    /// expressions costs nothing extra.
+    pub fn supertype_of_naive<R2: AsScopedRef<T>>(
         &self,
-        child: &TypeExpr<T, S2>,
+        child: &TypeExpr<T, R2>,
     ) -> SupertypeResult<NoSupertypeDiagnostics> {
         let scope = ScopePointer::new_root();
-        self.supertype_of_impl::<NoSupertypeDiagnostics, S2>(child, &scope, &scope).into()
+        self.supertype_of_impl::<NoSupertypeDiagnostics, R2>(child, &scope, &scope).into()
     }
 
-    /// Generic over the scope of both `self` and `child` independently — see [Self::supertype_of_naive].
-    pub fn supertype_of<S2: AsScopePortal<T>>(
+    /// Generic over the reference kind of both `self` and `child` independently — see [Self::supertype_of_naive].
+    pub fn supertype_of<R2: AsScopedRef<T>>(
         &self,
-        child: &TypeExpr<T, S2>,
+        child: &TypeExpr<T, R2>,
         parent_scope: &ScopePointer<T>,
         child_scope: &ScopePointer<T>,
     ) -> SupertypeResult<NoSupertypeDiagnostics> {
-        self.supertype_of_impl::<NoSupertypeDiagnostics, S2>(child, parent_scope, child_scope).into()
+        self.supertype_of_impl::<NoSupertypeDiagnostics, R2>(child, parent_scope, child_scope).into()
     }
 
-    /// Generic over the scope of both `self` and `child` independently — see [Self::supertype_of_naive].
-    pub fn supertype_of_detailed<S2: AsScopePortal<T>>(
+    /// Generic over the reference kind of both `self` and `child` independently — see [Self::supertype_of_naive].
+    pub fn supertype_of_detailed<R2: AsScopedRef<T>>(
         &self,
-        child: &TypeExpr<T, S2>,
+        child: &TypeExpr<T, R2>,
         parent_scope: &ScopePointer<T>,
         child_scope: &ScopePointer<T>,
     ) -> SupertypeResult<DetailedSupertypeDiagnostics<T>> {
-        self.supertype_of_impl::<DetailedSupertypeDiagnostics<T>, S2>(child, parent_scope, child_scope).into()
+        self.supertype_of_impl::<DetailedSupertypeDiagnostics<T>, R2>(child, parent_scope, child_scope).into()
     }
 
     /// Determines wether or not other is a supertype of self.
@@ -275,9 +276,9 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
     /// # Returns
     /// Result because that enables the try operator which comes in handy here.
     /// When [std::ops::Try] is stabilized, [NoSupertypeReason] could get replaced by SupertypeResult.
-    fn supertype_of_impl<D: SupertypeDiagnostics<T>, S2: AsScopePortal<T>>(
+    fn supertype_of_impl<D: SupertypeDiagnostics<T>, R2: AsScopedRef<T>>(
         &self,
-        child: &TypeExpr<T, S2>,
+        child: &TypeExpr<T, R2>,
         parent_scope: &ScopePointer<T>,
         child_scope: &ScopePointer<T>,
     ) -> Result<(), NoSupertypeReason<D>> {
@@ -302,110 +303,59 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
                 Some(false) => Err(Unrelated(D::new(parent, child, None))),
             },
 
-            // Type Param cases must be checked first because type parameters have to
+            // Reference cases must be checked first because type parameters have to
             // get normalized all the way before being able to compare them.
-            (
-                parent @ TypeExpr::TypeParameter(parent_param, _infer1),
-                child @ TypeExpr::TypeParameter(child_param, _infer2),
-            ) => {
-                // If any of them can't be be looked up fail quietly with unrelated.
-                let Some((parent_registered, parent_param_scope)) = parent_scope.lookup(parent_param) else {
-                    return Err(Unrelated(D::new(parent, child, Some(NoSupertypeLayerReason::UnknownTypeParam))));
-                };
-                let Some((child_registered, child_param_scope)) = child_scope.lookup(child_param) else {
-                    return Err(Unrelated(D::new(parent, child, Some(NoSupertypeLayerReason::UnknownTypeParam))));
-                };
-
-                if parent_param_scope == child_param_scope && parent_param == child_param {
-                    // both reference the same exact type variable
-                    return Ok(());
-                }
-
-                // Check if the child boundary or inferred type is Never.
-                let (child_boundary, child_boundary_scope) = child_registered.get_boundary(child_param_scope);
-                if child_boundary.is_never(&child_boundary_scope).unwrap_or(false) {
-                    return Ok(());
-                }
-
-                match (parent_registered.inferred(), child_registered.inferred()) {
-                    (Some((parent_inferred, parent_inferred_scope)), Some((child_inferred, child_inferred_scope))) => {
-                        parent_inferred.supertype_of_impl(
-                            &child_inferred,
-                            &parent_inferred_scope,
-                            &child_inferred_scope,
-                        )
-                    }
-                    (Some((parent_inferred, parent_inferred_scope)), None) => {
-                        let (child_boundary, child_boundary_scope) = child_registered.get_boundary(child_param_scope);
-                        if parent_inferred
-                            .supertype_of(child_boundary.as_ref(), &parent_inferred_scope, &child_boundary_scope)
-                            .is_supertype()
-                        {
-                            // if the child boundary is not yet inferred it could still be a subtype if its
-                            // bound falls inside the parent parameter's bound. But if that fails, return
-                            // Unknown because the result might still change when the child is inferred.
-                            return Ok(());
-                        }
-                        parent_inferred.supertype_of_impl::<D, S2>(child, &parent_inferred_scope, &child_scope)
-                    }
-                    (None, Some((child_inferred, child_inferred_scope))) => parent
-                        .supertype_of_impl::<D, ScopePortal<T>>(&child_inferred, &parent_scope, &child_inferred_scope),
-                    (None, None) => Err(Unknown),
-                }
-            }
-
-            (parent @ TypeExpr::TypeParameter(parent_param, _infer), child) => {
-                let Some((parent_registered, _parent_param_scope)) = parent_scope.lookup(parent_param) else {
-                    return Err(Unrelated(D::new(parent, child, Some(NoSupertypeLayerReason::UnknownTypeParam))));
-                };
-                if let Some((parent_inferred, parent_inferred_scope)) = parent_registered.inferred() {
-                    parent_inferred
-                        .supertype_of_impl::<D, S2>(child, &parent_inferred_scope, &child_scope)
-                        .map_err(|e| e.map_unrelated(|d| d.add_layer(parent, child, None)))
-                } else {
-                    Err(Unknown)
-                }
-            }
-
-            (parent, child @ TypeExpr::TypeParameter(child_param, _infer)) => {
-                let Some((child_registered, child_param_scope)) = child_scope.lookup(child_param) else {
-                    return Err(Unrelated(D::new(parent, child, Some(NoSupertypeLayerReason::UnknownTypeParam))));
-                };
-
-                // Check if the child boundary or inferred type is Never.
-                let (child_boundary, child_boundary_scope) = child_registered.get_boundary(child_param_scope);
-                if child_boundary.is_never(&child_boundary_scope).unwrap_or(false) {
-                    return Ok(());
-                }
-
-                if let Some((child_inferred, child_inferred_scope)) = child_registered.inferred() {
-                    parent
-                        .supertype_of_impl::<D, ScopePortal<T>>(&child_inferred, &parent_scope, &child_inferred_scope)
-                        .map_err(|e| e.map_unrelated(|d| d.add_layer(parent, child, None)))
-                } else {
-                    let (child_boundary, child_boundary_scope) = child_registered.get_boundary(child_param_scope);
-                    parent
-                        .supertype_of_impl::<D, ScopePortal<T>>(
-                            child_boundary.as_ref(),
+            (parent @ TypeExpr::Ref(parent_ref), child @ TypeExpr::Ref(child_ref)) => {
+                match (parent_ref.view(), child_ref.view()) {
+                    (ScopedRefView::Param(parent_param), ScopedRefView::Param(child_param)) => {
+                        both_params_supertype_of::<T, D, R, R2>(
+                            parent,
+                            parent_param,
+                            child,
+                            child_param,
                             &parent_scope,
-                            &child_boundary_scope,
+                            &child_scope,
                         )
-                        .map_err(|_| Unknown)
+                    }
+                    (ScopedRefView::Param(parent_param), _) => parent_param_supertype_of::<T, D, R, R2>(
+                        parent,
+                        parent_param,
+                        child,
+                        &parent_scope,
+                        &child_scope,
+                    ),
+                    (_, ScopedRefView::Param(child_param)) => {
+                        child_param_supertype_of::<T, D, R, R2>(parent, child, child_param, &parent_scope, &child_scope)
+                    }
+                    (ScopedRefView::ScopedExpr { expr, scope }, _) => {
+                        expr.supertype_of_impl::<D, R2>(child, scope, &child_scope)
+                    }
                 }
             }
 
-            (parent, TypeExpr::ScopePortal { expr, scope }) => {
-                parent.supertype_of_impl::<D, S2>(expr.as_ref(), &parent_scope, &scope.as_scope_portal().portal)
-            }
+            (parent @ TypeExpr::Ref(parent_ref), child) => match parent_ref.view() {
+                ScopedRefView::Param(parent_param) => {
+                    parent_param_supertype_of::<T, D, R, R2>(parent, parent_param, child, &parent_scope, &child_scope)
+                }
+                ScopedRefView::ScopedExpr { expr, scope } => {
+                    expr.supertype_of_impl::<D, R2>(child, scope, &child_scope)
+                }
+            },
 
-            (TypeExpr::ScopePortal { expr, scope }, child) => {
-                expr.supertype_of_impl::<D, S2>(child, &scope.as_scope_portal().portal, &child_scope)
-            }
+            (parent, child @ TypeExpr::Ref(child_ref)) => match child_ref.view() {
+                ScopedRefView::Param(child_param) => {
+                    child_param_supertype_of::<T, D, R, R2>(parent, child, child_param, &parent_scope, &child_scope)
+                }
+                ScopedRefView::ScopedExpr { expr, scope } => {
+                    parent.supertype_of_impl::<D, ScopedTypeRef<T>>(expr, &parent_scope, scope)
+                }
+            },
 
+            // As long as the operands aren't fully resolved, the operation can't be evaluated.
             (TypeExpr::Operation { a, b, operator }, child) => {
-                let a_normalized = a.normalize(&parent_scope);
-                let b_normalized = b.normalize(&parent_scope);
-                T::operation(&a_normalized, operator, &b_normalized).supertype_of_impl::<D, S2>(
+                let a_normalized = a.normalize_concrete(&parent_scope).ok_or(Unknown)?;
+                let b_normalized = b.normalize_concrete(&parent_scope).ok_or(Unknown)?;
+                T::operation(&a_normalized, operator, &b_normalized).supertype_of_impl::<D, R2>(
                     child,
                     &parent_scope,
                     &child_scope,
@@ -413,9 +363,9 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
             }
 
             (parent, TypeExpr::Operation { a, b, operator }) => {
-                let a_normalized = a.normalize(&child_scope);
-                let b_normalized = b.normalize(&child_scope);
-                parent.supertype_of_impl::<D, ScopePortal<T>>(
+                let a_normalized = a.normalize_concrete(&child_scope).ok_or(Unknown)?;
+                let b_normalized = b.normalize_concrete(&child_scope).ok_or(Unknown)?;
+                parent.supertype_of_impl::<D, NoRef>(
                     &T::operation(&a_normalized, operator, &b_normalized),
                     &parent_scope,
                     &child_scope,
@@ -424,12 +374,12 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
 
             (TypeExpr::KeyOf(parent_expr), child) => {
                 let (keyof, keyof_scope) = parent_expr.keyof(&parent_scope).ok_or(Unknown)?;
-                keyof.supertype_of_impl::<D, S2>(child, &keyof_scope, &child_scope)
+                keyof.supertype_of_impl::<D, R2>(child, &keyof_scope, &child_scope)
             }
 
             (parent, child @ TypeExpr::KeyOf(child_expr)) => {
                 let (keyof, keyof_scope) = child_expr.keyof(&child_scope).ok_or(Unknown)?;
-                parent.supertype_of_impl::<D, ScopePortal<T>>(&keyof, &parent_scope, &keyof_scope).map_err(|e| {
+                parent.supertype_of_impl::<D, ScopedTypeRef<T>>(&keyof, &parent_scope, &keyof_scope).map_err(|e| {
                     e.map_unrelated(|d| d.add_layer(parent, child, Some(NoSupertypeLayerReason::UnknownTypeParam)))
                 })
             }
@@ -437,8 +387,8 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
             // self must be a supertype of both child_a and child_b.
             (parent @ TypeExpr::Union(_, _), TypeExpr::Union(child_a, child_b)) => {
                 match (
-                    parent.supertype_of_impl::<D, S2>(child_a, &parent_scope, &child_scope),
-                    parent.supertype_of_impl::<D, S2>(child_b, &parent_scope, &child_scope),
+                    parent.supertype_of_impl::<D, R2>(child_a, &parent_scope, &child_scope),
+                    parent.supertype_of_impl::<D, R2>(child_b, &parent_scope, &child_scope),
                 ) {
                     (Ok(()), Ok(())) => Ok(()),
                     (_, Err(Unknown)) | (Err(Unknown), _) => Err(Unknown),
@@ -449,8 +399,8 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
             // At least one of the parents must be a supertype of child.
             (parent @ TypeExpr::Union(parent_a, parent_b), child) => {
                 match (
-                    parent_a.supertype_of_impl::<D, S2>(child, &parent_scope, &child_scope),
-                    parent_b.supertype_of_impl::<D, S2>(child, &parent_scope, &child_scope),
+                    parent_a.supertype_of_impl::<D, R2>(child, &parent_scope, &child_scope),
+                    parent_b.supertype_of_impl::<D, R2>(child, &parent_scope, &child_scope),
                 ) {
                     (Ok(()), _) => Ok(()),
                     (_, Ok(())) => Ok(()),
@@ -462,8 +412,8 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
             // Parent must be supertype of both a and b.
             (parent, child @ TypeExpr::Union(child_a, child_b)) => {
                 match (
-                    parent.supertype_of_impl::<D, S2>(child_a, &parent_scope, &child_scope),
-                    parent.supertype_of_impl::<D, S2>(child_b, &parent_scope, &child_scope),
+                    parent.supertype_of_impl::<D, R2>(child_a, &parent_scope, &child_scope),
+                    parent.supertype_of_impl::<D, R2>(child_b, &parent_scope, &child_scope),
                 ) {
                     (Ok(()), Ok(())) => Ok(()),
                     (_, Err(Unknown)) | (Err(Unknown), _) => Err(Unknown),
@@ -475,7 +425,7 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
                 let (intersection, intersection_scope) =
                     TypeExpr::intersection(parent_a, parent_b, &parent_scope, &parent_scope).ok_or(Unknown)?;
                 intersection
-                    .supertype_of_impl::<D, S2>(child, &intersection_scope, &child_scope)
+                    .supertype_of_impl::<D, R2>(child, &intersection_scope, &child_scope)
                     .map_err(|e| e.map_unrelated(|d| d.add_layer(self, child, None)))
             }
 
@@ -483,16 +433,16 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
                 let (intersection, intersection_scope) =
                     TypeExpr::intersection(child_a, child_b, &child_scope, &child_scope).ok_or(Unknown)?;
                 parent
-                    .supertype_of_impl::<D, ScopePortal<T>>(&intersection, &parent_scope, &intersection_scope)
+                    .supertype_of_impl::<D, ScopedTypeRef<T>>(&intersection, &parent_scope, &intersection_scope)
                     .map_err(|e| e.map_unrelated(|d| d.add_layer(parent, &child, None)))
             }
 
             (TypeExpr::Conditional(conditional), child) => conditional
                 .distribute(&parent_scope)
                 .ok_or(Unknown)?
-                .supertype_of_impl::<D, S2>(child, &parent_scope, &child_scope),
+                .supertype_of_impl::<D, R2>(child, &parent_scope, &child_scope),
 
-            (parent, TypeExpr::Conditional(conditional)) => parent.supertype_of_impl::<D, ScopePortal<T>>(
+            (parent, TypeExpr::Conditional(conditional)) => parent.supertype_of_impl::<D, ScopedTypeRef<T>>(
                 &conditional.distribute(&child_scope).ok_or(Unknown)?,
                 &parent_scope,
                 &child_scope,
@@ -516,7 +466,7 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
                 }
 
                 // contravariant
-                child_sig.inputs.supertype_of_impl::<D, S>(&parent_sig.inputs, &child_scope, &parent_scope).map_err(
+                child_sig.inputs.supertype_of_impl::<D, R>(&parent_sig.inputs, &child_scope, &parent_scope).map_err(
                     |e| {
                         e.map_unrelated(|d| {
                             d.add_layer(parent, child, Some(NoSupertypeLayerReason::NodeSignatureInputs))
@@ -527,7 +477,7 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
                 // covariant
                 parent_sig
                     .outputs
-                    .supertype_of_impl::<D, S2>(&child_sig.outputs, &parent_scope, &child_scope)
+                    .supertype_of_impl::<D, R2>(&child_sig.outputs, &parent_scope, &child_scope)
                     .map_err(|e| {
                         e.map_unrelated(|d| {
                             d.add_layer(parent, child, Some(NoSupertypeLayerReason::NodeSignatureOutputs))
@@ -579,7 +529,7 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
                         // }
                         return Err(Unrelated(D::new(parent, child, Some(NoSupertypeLayerReason::PortTypesArity))));
                     };
-                    parent_arg.supertype_of_impl::<D, S2>(child_arg, &parent_scope, &child_scope).map_err(|e| {
+                    parent_arg.supertype_of_impl::<D, R2>(child_arg, &parent_scope, &child_scope).map_err(|e| {
                         e.map_unrelated(|d| d.add_layer(parent, child, Some(NoSupertypeLayerReason::PortTypesPort)))
                     })?;
                 }
@@ -589,14 +539,14 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
             (TypeExpr::Index { expr, index }, child) => {
                 let (index_type, index_scope) = expr.index(index, &parent_scope, &parent_scope).ok_or(Unknown)?;
                 index_type
-                    .supertype_of_impl::<D, S2>(child, &index_scope, &child_scope)
+                    .supertype_of_impl::<D, R2>(child, &index_scope, &child_scope)
                     .map_err(|e| e.map_unrelated(|d| d.add_layer(self, child, Some(NoSupertypeLayerReason::Index))))
             }
 
             (parent, TypeExpr::Index { expr, index }) => {
                 let (index_type, index_scope) = expr.index(index, &child_scope, &child_scope).ok_or(Unknown)?;
                 parent
-                    .supertype_of_impl::<D, ScopePortal<T>>(&index_type, &parent_scope, &index_scope)
+                    .supertype_of_impl::<D, ScopedTypeRef<T>>(&index_type, &parent_scope, &index_scope)
                     .map_err(|e| e.map_unrelated(|d| d.add_layer(parent, &child, Some(NoSupertypeLayerReason::Index))))
             }
 
@@ -635,7 +585,7 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
                         }
                         return Err(Unrelated(D::new(parent, child, Some(NoSupertypeLayerReason::ConstructorArity))));
                     };
-                    parent_param.supertype_of_impl::<D, S2>(child_param, &parent_scope, &child_scope).map_err(|e| {
+                    parent_param.supertype_of_impl::<D, R2>(child_param, &parent_scope, &child_scope).map_err(|e| {
                         e.map_unrelated(|d| d.add_layer(parent, child, Some(NoSupertypeLayerReason::ConstructorParam)))
                     })?;
                 }
@@ -652,7 +602,7 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
     }
 }
 
-impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
+impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
     /// Determines wether or not the type is optional in a constructor.
     ///
     /// That is if it:
@@ -660,10 +610,10 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
     /// - or it normalizes to a union with at least one such type.
     ///
     /// Only ever called on a single (missing) constructor parameter, so widening it here (rather
-    /// than threading `S` through `traverse`/`traverse_union`, which inline already-scoped inferred
-    /// type parameters and so can't stay generic over `S`) is a small, bounded cost.
+    /// than threading `R` through `traverse`/`traverse_union`, which inline already-scoped inferred
+    /// type parameters and so can't stay generic over `R`) is a small, bounded cost.
     pub fn is_optional_in_constructor(&self, scope: &ScopePointer<T>) -> bool {
-        let scoped: ScopedTypeExpr<T> = self.clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone());
+        let scoped: ScopedTypeExpr<T> = self.clone().into_scoped();
         let mut is_optional = false;
         scoped.traverse_union(scope, &mut |traversal_expr, traversal_scope| {
             if let Some(t) = traversal_expr.normalize_to_type(traversal_scope)
@@ -673,5 +623,113 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
             }
         });
         is_optional
+    }
+}
+
+/// `parent` and `child` both reference a type parameter.
+fn both_params_supertype_of<T: Type, D: SupertypeDiagnostics<T>, Rp: AsScopedRef<T>, Rc: AsScopedRef<T>>(
+    parent: &TypeExpr<T, Rp>,
+    parent_param: &ParamRef,
+    child: &TypeExpr<T, Rc>,
+    child_param: &ParamRef,
+    parent_scope: &ScopePointer<T>,
+    child_scope: &ScopePointer<T>,
+) -> Result<(), NoSupertypeReason<D>> {
+    use NoSupertypeReason::*;
+
+    // If any of them can't be be looked up fail quietly with unrelated.
+    let Some((parent_registered, parent_param_scope)) = parent_scope.lookup(&parent_param.param_id) else {
+        return Err(Unrelated(D::new(parent, child, Some(NoSupertypeLayerReason::UnknownTypeParam))));
+    };
+    let Some((child_registered, child_param_scope)) = child_scope.lookup(&child_param.param_id) else {
+        return Err(Unrelated(D::new(parent, child, Some(NoSupertypeLayerReason::UnknownTypeParam))));
+    };
+
+    if parent_param_scope == child_param_scope && parent_param.param_id == child_param.param_id {
+        // both reference the same exact type variable
+        return Ok(());
+    }
+
+    // Check if the child boundary or inferred type is Never.
+    let (child_boundary, child_boundary_scope) = child_registered.get_boundary(child_param_scope);
+    if child_boundary.is_never(&child_boundary_scope).unwrap_or(false) {
+        return Ok(());
+    }
+
+    match (parent_registered.inferred(), child_registered.inferred()) {
+        (Some((parent_inferred, parent_inferred_scope)), Some((child_inferred, child_inferred_scope))) => {
+            parent_inferred.supertype_of_impl(&child_inferred, &parent_inferred_scope, &child_inferred_scope)
+        }
+        (Some((parent_inferred, parent_inferred_scope)), None) => {
+            let (child_boundary, child_boundary_scope) = child_registered.get_boundary(child_param_scope);
+            if parent_inferred
+                .supertype_of(child_boundary.as_ref(), &parent_inferred_scope, &child_boundary_scope)
+                .is_supertype()
+            {
+                // if the child boundary is not yet inferred it could still be a subtype if its
+                // bound falls inside the parent parameter's bound. But if that fails, return
+                // Unknown because the result might still change when the child is inferred.
+                return Ok(());
+            }
+            parent_inferred.supertype_of_impl::<D, Rc>(child, &parent_inferred_scope, child_scope)
+        }
+        (None, Some((child_inferred, child_inferred_scope))) => {
+            parent.supertype_of_impl::<D, ScopedTypeRef<T>>(&child_inferred, parent_scope, &child_inferred_scope)
+        }
+        (None, None) => Err(Unknown),
+    }
+}
+
+/// Only `parent` references a type parameter.
+fn parent_param_supertype_of<T: Type, D: SupertypeDiagnostics<T>, Rp: AsScopedRef<T>, Rc: AsScopedRef<T>>(
+    parent: &TypeExpr<T, Rp>,
+    parent_param: &ParamRef,
+    child: &TypeExpr<T, Rc>,
+    parent_scope: &ScopePointer<T>,
+    child_scope: &ScopePointer<T>,
+) -> Result<(), NoSupertypeReason<D>> {
+    use NoSupertypeReason::*;
+
+    let Some((parent_registered, _parent_param_scope)) = parent_scope.lookup(&parent_param.param_id) else {
+        return Err(Unrelated(D::new(parent, child, Some(NoSupertypeLayerReason::UnknownTypeParam))));
+    };
+    if let Some((parent_inferred, parent_inferred_scope)) = parent_registered.inferred() {
+        parent_inferred
+            .supertype_of_impl::<D, Rc>(child, &parent_inferred_scope, child_scope)
+            .map_err(|e| e.map_unrelated(|d| d.add_layer(parent, child, None)))
+    } else {
+        Err(Unknown)
+    }
+}
+
+/// Only `child` references a type parameter.
+fn child_param_supertype_of<T: Type, D: SupertypeDiagnostics<T>, Rp: AsScopedRef<T>, Rc: AsScopedRef<T>>(
+    parent: &TypeExpr<T, Rp>,
+    child: &TypeExpr<T, Rc>,
+    child_param: &ParamRef,
+    parent_scope: &ScopePointer<T>,
+    child_scope: &ScopePointer<T>,
+) -> Result<(), NoSupertypeReason<D>> {
+    use NoSupertypeReason::*;
+
+    let Some((child_registered, child_param_scope)) = child_scope.lookup(&child_param.param_id) else {
+        return Err(Unrelated(D::new(parent, child, Some(NoSupertypeLayerReason::UnknownTypeParam))));
+    };
+
+    // Check if the child boundary or inferred type is Never.
+    let (child_boundary, child_boundary_scope) = child_registered.get_boundary(child_param_scope);
+    if child_boundary.is_never(&child_boundary_scope).unwrap_or(false) {
+        return Ok(());
+    }
+
+    if let Some((child_inferred, child_inferred_scope)) = child_registered.inferred() {
+        parent
+            .supertype_of_impl::<D, ScopedTypeRef<T>>(&child_inferred, parent_scope, &child_inferred_scope)
+            .map_err(|e| e.map_unrelated(|d| d.add_layer(parent, child, None)))
+    } else {
+        let (child_boundary, child_boundary_scope) = child_registered.get_boundary(child_param_scope);
+        parent
+            .supertype_of_impl::<D, ScopedTypeRef<T>>(child_boundary.as_ref(), parent_scope, &child_boundary_scope)
+            .map_err(|_| Unknown)
     }
 }

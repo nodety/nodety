@@ -8,7 +8,7 @@ use nodety::notation::parse::{
 };
 use nodety::scope::{LocalParamID, Scope};
 use nodety::type_expr::{
-    ScopePortal, TypeExpr, Unscoped,
+    ParamRef, ScopedTypeRef, TypeExpr,
     conditional::Conditional,
     node_signature::{NodeSignature, port_types::PortTypes, type_parameters::TypeParameters},
 };
@@ -19,7 +19,7 @@ mod common;
 #[test]
 fn test_union_nested() {
     assert_eq!(
-        parse_type_expr_union::<DemoType, Unscoped>("Boolean|Float|String"),
+        parse_type_expr_union::<DemoType, ParamRef>("Boolean|Float|String"),
         Ok((
             "",
             TypeExpr::Union(
@@ -85,11 +85,11 @@ fn test_node_signature_primitive_arr() {
 fn test_generic_array() {
     let signature = sig("<T>(Array<T>) -> ()");
     assert_eq!(
-        NodeSignature::<DemoType, ScopePortal<DemoType>>::from(NodeSignature {
-            parameters: parse_type_parameter_declarations::<DemoType, Unscoped>("<T>").unwrap().1,
+        NodeSignature::<DemoType, ScopedTypeRef<DemoType>>::from(NodeSignature {
+            parameters: parse_type_parameter_declarations::<DemoType, ParamRef>("<T>").unwrap().1,
             inputs: TypeExpr::PortTypes(Box::new(PortTypes::from_ports(vec![TypeExpr::Constructor {
                 inner: DemoType::Array,
-                parameters: btreemap! {"elements_type".into() => TypeExpr::TypeParameter(LocalParamID::from("T"), true)}
+                parameters: btreemap! {"elements_type".into() => TypeExpr::param_with_infer(LocalParamID::from("T"), true)}
             }]))),
             ..Default::default()
         }),
@@ -116,11 +116,11 @@ fn test_sig_with_union() {
 fn test_sig_with_generic_union() {
     let signature = sig("<T>(Integer|T) -> ()");
     assert_eq!(
-        NodeSignature::<DemoType, ScopePortal<DemoType>>::from(NodeSignature {
-            parameters: parse_type_parameter_declarations::<DemoType, Unscoped>("<T>").unwrap().1,
+        NodeSignature::<DemoType, ScopedTypeRef<DemoType>>::from(NodeSignature {
+            parameters: parse_type_parameter_declarations::<DemoType, ParamRef>("<T>").unwrap().1,
             inputs: TypeExpr::PortTypes(Box::new(PortTypes::from_ports(vec![TypeExpr::Union(
                 Box::new(TypeExpr::Type(DemoType::Integer)),
-                Box::new(TypeExpr::TypeParameter(LocalParamID::from("T"), true))
+                Box::new(TypeExpr::param_with_infer(LocalParamID::from("T"), true))
             )]))),
             ..Default::default()
         }),
@@ -132,10 +132,10 @@ fn test_sig_with_generic_union() {
 fn test_keyof() {
     let signature = sig("<T>(keyof T) -> ()");
     assert_eq!(
-        NodeSignature::<DemoType, ScopePortal<DemoType>>::from(NodeSignature {
-            parameters: parse_type_parameter_declarations::<DemoType, Unscoped>("<T>").unwrap().1,
+        NodeSignature::<DemoType, ScopedTypeRef<DemoType>>::from(NodeSignature {
+            parameters: parse_type_parameter_declarations::<DemoType, ParamRef>("<T>").unwrap().1,
             inputs: TypeExpr::PortTypes(Box::new(PortTypes::from_ports(vec![TypeExpr::KeyOf(Box::new(
-                TypeExpr::TypeParameter(LocalParamID::from("T"), true)
+                TypeExpr::param_with_infer(LocalParamID::from("T"), true)
             ))]))),
             ..Default::default()
         }),
@@ -147,8 +147,8 @@ fn test_keyof() {
 fn test_string_literal() {
     let signature = sig("(\"A\") -> ()");
     assert_eq!(
-        NodeSignature::<DemoType, ScopePortal<DemoType>>::from(NodeSignature {
-            inputs: TypeExpr::PortTypes(Box::new(PortTypes::from_ports(vec![TypeExpr::<DemoType, Unscoped>::Type(
+        NodeSignature::<DemoType, ScopedTypeRef<DemoType>>::from(NodeSignature {
+            inputs: TypeExpr::PortTypes(Box::new(PortTypes::from_ports(vec![TypeExpr::<DemoType, ParamRef>::Type(
                 DemoType::String(Some("A".into()))
             )]))),
             ..Default::default()
@@ -163,9 +163,9 @@ fn test_param_with_idx() {
 
     let signature = sig("<#0>(#0) -> ()");
     assert_eq!(
-        NodeSignature::<DemoType, ScopePortal<DemoType>>::from(NodeSignature {
-            parameters: parse_type_parameter_declarations::<DemoType, Unscoped>("<#0>").unwrap().1,
-            inputs: TypeExpr::PortTypes(Box::new(PortTypes::from_ports(vec![TypeExpr::TypeParameter(
+        NodeSignature::<DemoType, ScopedTypeRef<DemoType>>::from(NodeSignature {
+            parameters: parse_type_parameter_declarations::<DemoType, ParamRef>("<#0>").unwrap().1,
+            inputs: TypeExpr::PortTypes(Box::new(PortTypes::from_ports(vec![TypeExpr::param_with_infer(
                 LocalParamID(0),
                 true
             )]))),
@@ -194,7 +194,7 @@ fn test_index() {
 
 #[test]
 fn test_intersection() {
-    let expr = parse_type_expr::<DemoType, Unscoped>("Integer & String").unwrap().1;
+    let expr = parse_type_expr::<DemoType, ParamRef>("Integer & String").unwrap().1;
     assert_eq!(
         TypeExpr::Intersection(
             Box::new(TypeExpr::Type(DemoType::Integer)),
@@ -206,7 +206,7 @@ fn test_intersection() {
 
 #[test]
 fn test_intersection_nested_brackets() {
-    let expr = parse_type_expr::<DemoType, Unscoped>("Integer & (String|Float)").unwrap().1;
+    let expr = parse_type_expr::<DemoType, ParamRef>("Integer & (String|Float)").unwrap().1;
     assert_eq!(
         TypeExpr::Intersection(
             Box::new(TypeExpr::Type(DemoType::Integer)),
@@ -221,7 +221,7 @@ fn test_intersection_nested_brackets() {
 
 #[test]
 fn test_conditional() {
-    let expr = parse_type_expr::<DemoType, Unscoped>("Integer extends String ? Boolean : Float").unwrap().1;
+    let expr = parse_type_expr::<DemoType, ParamRef>("Integer extends String ? Boolean : Float").unwrap().1;
     assert_eq!(
         TypeExpr::Conditional(Box::new(Conditional {
             t_test: TypeExpr::Type(DemoType::Integer),
@@ -291,29 +291,29 @@ fn test_parse_si_unit() {
 
 #[test]
 fn test_try_parse_type_expr() {
-    let expr = TypeExpr::<DemoType, Unscoped>::try_parse("Integer | String").unwrap();
-    assert_eq!(expr, parse_type_expr::<DemoType, Unscoped>("Integer | String").unwrap().1);
+    let expr = TypeExpr::<DemoType, ParamRef>::try_parse("Integer | String").unwrap();
+    assert_eq!(expr, parse_type_expr::<DemoType, ParamRef>("Integer | String").unwrap().1);
 
     let expr: TypeExpr<DemoType> = "Boolean".parse().unwrap();
     assert_eq!(expr, TypeExpr::Type(DemoType::Boolean));
 
-    let err = TypeExpr::<DemoType, Unscoped>::try_parse("Integer |").unwrap_err();
+    let err = TypeExpr::<DemoType, ParamRef>::try_parse("Integer |").unwrap_err();
     assert!(!err.remaining.is_empty());
     assert!(err.offset > 0);
 }
 
 #[test]
 fn test_try_parse_node_signature() {
-    let sig = NodeSignature::<DemoType, Unscoped>::try_parse("() -> ()").unwrap();
+    let sig = NodeSignature::<DemoType, ParamRef>::try_parse("() -> ()").unwrap();
     assert_eq!(sig, NodeSignature::default());
 
-    let sig: NodeSignature<DemoType, Unscoped> = "(Integer) -> (String)".parse().unwrap();
+    let sig: NodeSignature<DemoType, ParamRef> = "(Integer) -> (String)".parse().unwrap();
     assert_eq!(
         sig.inputs,
         TypeExpr::PortTypes(Box::new(PortTypes::from_ports(vec![TypeExpr::Type(DemoType::Integer)])))
     );
 
-    let err = NodeSignature::<DemoType, Unscoped>::try_parse("() -> () extra").unwrap_err();
+    let err = NodeSignature::<DemoType, ParamRef>::try_parse("() -> () extra").unwrap_err();
     assert!(err.remaining.contains("extra"));
 }
 
@@ -348,7 +348,7 @@ fn test_parse_scope_remaining_error() {
 
 #[test]
 fn test_parse_type_hints() {
-    let hints: nodety::TypeHints<DemoType, Unscoped> = "T = Integer, U = String".parse().unwrap();
+    let hints: nodety::TypeHints<DemoType, ParamRef> = "T = Integer, U = String".parse().unwrap();
     assert_eq!(hints.len(), 2);
 }
 
@@ -363,10 +363,10 @@ fn test_parse_varg_only() {
 
 #[test]
 fn test_parse_empty_type_parameters() {
-    let params: TypeParameters<DemoType, Unscoped> = "<>".parse().unwrap();
+    let params: TypeParameters<DemoType, ParamRef> = "<>".parse().unwrap();
     assert!(params.is_empty());
 
-    let params = parse_type_parameter_declarations::<DemoType, Unscoped>("<>").unwrap().1;
+    let params = parse_type_parameter_declarations::<DemoType, ParamRef>("<>").unwrap().1;
     assert!(params.is_empty());
 
     // Node signature with explicit empty type params
@@ -376,10 +376,10 @@ fn test_parse_empty_type_parameters() {
 
 #[test]
 fn test_type_parameters_from_str_display_roundtrip() {
-    let params: TypeParameters<DemoType, Unscoped> = "<T, U extends Integer>".parse().unwrap();
+    let params: TypeParameters<DemoType, ParamRef> = "<T, U extends Integer>".parse().unwrap();
     assert_eq!(params.len(), 2);
     assert_eq!(params.to_string(), "<T, U extends Integer>");
 
-    let empty: TypeParameters<DemoType, Unscoped> = "<>".parse().unwrap();
+    let empty: TypeParameters<DemoType, ParamRef> = "<>".parse().unwrap();
     assert_eq!(empty.to_string(), "<>");
 }

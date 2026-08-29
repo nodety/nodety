@@ -3,7 +3,7 @@
 use crate::{
     scope::LocalParamID,
     r#type::Type,
-    type_expr::{TypeExpr, TypeExprScope, Unscoped, node_signature::NodeSignature},
+    type_expr::{ParamRef, TypeExpr, TypeRef, node_signature::NodeSignature},
 };
 use petgraph::graph::NodeIndex;
 use std::{collections::BTreeMap, ops::Deref};
@@ -20,60 +20,60 @@ use tsify::Tsify;
 #[cfg_attr(
     feature = "serde",
     serde(bound(
-        serialize = "T: Serialize, T::Operator: Serialize, S: Serialize",
-        deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>, S: Deserialize<'de>"
+        serialize = "T: Serialize, T::Operator: Serialize, R: Serialize",
+        deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>, R: Deserialize<'de>"
     ))
 )]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
-#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, S: JsonSchema"))]
+#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, R: JsonSchema"))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
 #[derive(Debug, Clone, PartialEq)]
-pub struct TypeHints<T: Type, S: TypeExprScope = Unscoped>(pub BTreeMap<LocalParamID, TypeExpr<T, S>>);
+pub struct TypeHints<T: Type, R: TypeRef = ParamRef>(pub BTreeMap<LocalParamID, TypeExpr<T, R>>);
 
-impl<T: Type, S: TypeExprScope> Default for TypeHints<T, S> {
+impl<T: Type, R: TypeRef> Default for TypeHints<T, R> {
     fn default() -> Self {
         Self(BTreeMap::new())
     }
 }
 
-impl<T: Type, S: TypeExprScope> Deref for TypeHints<T, S> {
-    type Target = BTreeMap<LocalParamID, TypeExpr<T, S>>;
+impl<T: Type, R: TypeRef> Deref for TypeHints<T, R> {
+    type Target = BTreeMap<LocalParamID, TypeExpr<T, R>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<T: Type, S: TypeExprScope> From<BTreeMap<LocalParamID, TypeExpr<T, S>>> for TypeHints<T, S> {
-    fn from(map: BTreeMap<LocalParamID, TypeExpr<T, S>>) -> Self {
+impl<T: Type, R: TypeRef> From<BTreeMap<LocalParamID, TypeExpr<T, R>>> for TypeHints<T, R> {
+    fn from(map: BTreeMap<LocalParamID, TypeExpr<T, R>>) -> Self {
         Self(map)
     }
 }
 
-impl<T: Type, S: TypeExprScope> From<TypeHints<T, S>> for BTreeMap<LocalParamID, TypeExpr<T, S>> {
-    fn from(hints: TypeHints<T, S>) -> Self {
+impl<T: Type, R: TypeRef> From<TypeHints<T, R>> for BTreeMap<LocalParamID, TypeExpr<T, R>> {
+    fn from(hints: TypeHints<T, R>) -> Self {
         hints.0
     }
 }
 
-impl<T: Type, S: TypeExprScope> FromIterator<(LocalParamID, TypeExpr<T, S>)> for TypeHints<T, S> {
-    fn from_iter<I: IntoIterator<Item = (LocalParamID, TypeExpr<T, S>)>>(iter: I) -> Self {
+impl<T: Type, R: TypeRef> FromIterator<(LocalParamID, TypeExpr<T, R>)> for TypeHints<T, R> {
+    fn from_iter<I: IntoIterator<Item = (LocalParamID, TypeExpr<T, R>)>>(iter: I) -> Self {
         Self(iter.into_iter().collect())
     }
 }
 
-impl<'a, T: Type, S: TypeExprScope> IntoIterator for &'a TypeHints<T, S> {
-    type Item = (&'a LocalParamID, &'a TypeExpr<T, S>);
-    type IntoIter = std::collections::btree_map::Iter<'a, LocalParamID, TypeExpr<T, S>>;
+impl<'a, T: Type, R: TypeRef> IntoIterator for &'a TypeHints<T, R> {
+    type Item = (&'a LocalParamID, &'a TypeExpr<T, R>);
+    type IntoIter = std::collections::btree_map::Iter<'a, LocalParamID, TypeExpr<T, R>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
     }
 }
 
-impl<T: Type, S: TypeExprScope> IntoIterator for TypeHints<T, S> {
-    type Item = (LocalParamID, TypeExpr<T, S>);
-    type IntoIter = std::collections::btree_map::IntoIter<LocalParamID, TypeExpr<T, S>>;
+impl<T: Type, R: TypeRef> IntoIterator for TypeHints<T, R> {
+    type Item = (LocalParamID, TypeExpr<T, R>);
+    type IntoIter = std::collections::btree_map::IntoIter<LocalParamID, TypeExpr<T, R>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
@@ -100,17 +100,17 @@ mod node_index_serde {
     serde(
         rename_all = "camelCase",
         bound(
-            serialize = "T: Serialize, T::Operator: Serialize, S: Serialize",
-            deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>, S: Deserialize<'de>"
+            serialize = "T: Serialize, T::Operator: Serialize, R: Serialize",
+            deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>, R: Deserialize<'de>"
         )
     )
 )]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
-#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, S: JsonSchema"))]
+#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, R: JsonSchema"))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
 #[derive(Debug, Clone)]
-pub struct Node<T: Type, S: TypeExprScope = Unscoped> {
-    pub signature: NodeSignature<T, S>,
+pub struct Node<T: Type, R: TypeRef = ParamRef> {
+    pub signature: NodeSignature<T, R>,
     /// Node index of the parent node if there is one.
     #[cfg_attr(feature = "json-schema", schemars(with = "usize"))]
     #[cfg_attr(feature = "serde", serde(default, with = "node_index_serde"))]
@@ -119,19 +119,19 @@ pub struct Node<T: Type, S: TypeExprScope = Unscoped> {
     /// These will get inferred directly before inferring anything else. Setting
     /// this is required only when inference is ambiguous. Aka rusts "type annotations needed".
     #[cfg_attr(feature = "serde", serde(default))]
-    pub type_hints: TypeHints<T, S>,
+    pub type_hints: TypeHints<T, R>,
 }
 
-impl<T: Type> Node<T, Unscoped> {
-    pub fn new(signature: NodeSignature<T, Unscoped>) -> Self {
+impl<T: Type> Node<T, ParamRef> {
+    pub fn new(signature: NodeSignature<T, ParamRef>) -> Self {
         Self { signature, parent: None, type_hints: TypeHints::default() }
     }
 
-    pub fn new_child(signature: NodeSignature<T, Unscoped>, parent: NodeIndex) -> Self {
+    pub fn new_child(signature: NodeSignature<T, ParamRef>, parent: NodeIndex) -> Self {
         Self { signature, parent: Some(parent), type_hints: TypeHints::default() }
     }
 
-    pub fn with_type_hints(self, type_hints: BTreeMap<LocalParamID, TypeExpr<T, Unscoped>>) -> Self {
+    pub fn with_type_hints(self, type_hints: BTreeMap<LocalParamID, TypeExpr<T, ParamRef>>) -> Self {
         Self { type_hints: type_hints.into(), ..self }
     }
 }

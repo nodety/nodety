@@ -1,66 +1,71 @@
 use crate::{
     scope::ScopePointer,
     r#type::Type,
-    type_expr::{AsScopePortal, ScopePortal, ScopedTypeExpr, TypeExpr},
+    type_expr::{AsScopedRef, ScopedRefView, ScopedTypeExpr, TypeExpr},
 };
 use std::collections::BTreeMap;
 
-impl<T: Type, Sa: AsScopePortal<T>> TypeExpr<T, Sa> {
+impl<T: Type, Ra: AsScopedRef<T>> TypeExpr<T, Ra> {
     /// # Returns
     /// - [TypeExpr::Never] if `a` and `b` have nothing in common.
     /// - `None` if an uninferred variable prevents the intersection from being known.
-    pub fn intersection<Sb: AsScopePortal<T>>(
+    pub fn intersection<Rb: AsScopedRef<T>>(
         a: &Self,
-        b: &TypeExpr<T, Sb>,
+        b: &TypeExpr<T, Rb>,
         scope_a: &ScopePointer<T>,
         scope_b: &ScopePointer<T>,
     ) -> Option<(ScopedTypeExpr<T>, ScopePointer<T>)> {
         match (a, b) {
-            (TypeExpr::Any, b) => Some((
-                b.clone().map_scope_portals(&mut |s: Sb| s.as_scope_portal().clone()),
-                ScopePointer::clone(scope_b),
-            )),
-            (a, TypeExpr::Any) => Some((
-                a.clone().map_scope_portals(&mut |s: Sa| s.as_scope_portal().clone()),
-                ScopePointer::clone(scope_a),
-            )),
+            (TypeExpr::Any, b) => Some((b.clone().into_scoped(), ScopePointer::clone(scope_b))),
+            (a, TypeExpr::Any) => Some((a.clone().into_scoped(), ScopePointer::clone(scope_a))),
             (TypeExpr::Never, _) => Some((TypeExpr::Never, ScopePointer::clone(scope_a))),
             (_, TypeExpr::Never) => Some((TypeExpr::Never, ScopePointer::clone(scope_b))),
 
-            // Type Params
-            (a @ TypeExpr::TypeParameter(local_param_a, ..), TypeExpr::TypeParameter(local_param_b, ..)) => {
-                let (_var_a, param_scope_a) = scope_a.lookup(local_param_a)?;
-                let (_var_b, param_scope_b) = scope_b.lookup(local_param_b)?;
-                // First check if the two variables reference the same var.
-                if local_param_a == local_param_b && param_scope_a == param_scope_b {
-                    return Some((
-                        a.clone().map_scope_portals(&mut |s: Sa| s.as_scope_portal().clone()),
-                        ScopePointer::clone(scope_a),
-                    ));
+            // References. Ordering mirrors the flat match this used to be:
+            // type params on either side first, then a's scope portal, then b's.
+            (TypeExpr::Ref(ref_a), TypeExpr::Ref(ref_b)) => match (ref_a.view(), ref_b.view()) {
+                (ScopedRefView::Param(param_a), ScopedRefView::Param(param_b)) => {
+                    let (_var_a, param_scope_a) = scope_a.lookup(&param_a.param_id)?;
+                    let (_var_b, param_scope_b) = scope_b.lookup(&param_b.param_id)?;
+                    // First check if the two variables reference the same var.
+                    if param_a.param_id == param_b.param_id && param_scope_a == param_scope_b {
+                        return Some((a.clone().into_scoped(), ScopePointer::clone(scope_a)));
+                    }
+                    let (Some((inferred_a, scope_a)), Some((inferred_b, scope_b))) =
+                        (scope_a.lookup_inferred(&param_a.param_id), scope_b.lookup_inferred(&param_b.param_id))
+                    else {
+                        return None;
+                    };
+                    TypeExpr::intersection(&inferred_a, &inferred_b, &scope_a, &scope_b)
                 }
-                let (Some((inferred_a, scope_a)), Some((inferred_b, scope_b))) =
-                    (scope_a.lookup_inferred(local_param_a), scope_b.lookup_inferred(local_param_b))
-                else {
-                    return None;
-                };
-                TypeExpr::intersection(&inferred_a, &inferred_b, &scope_a, &scope_b)
-            }
-            (TypeExpr::TypeParameter(param, _infer), b) => {
-                let (inferred_a, scope_a) = scope_a.lookup_inferred(param)?;
-                TypeExpr::intersection(&inferred_a, b, &scope_a, scope_b)
-            }
-            (a, TypeExpr::TypeParameter(param, _infer)) => {
-                let (inferred_b, scope_b) = scope_b.lookup_inferred(param)?;
-                TypeExpr::intersection(a, &inferred_b, scope_a, &scope_b)
-            }
+                (ScopedRefView::Param(param_a), _) => {
+                    let (inferred_a, scope_a) = scope_a.lookup_inferred(&param_a.param_id)?;
+                    TypeExpr::intersection(&inferred_a, b, &scope_a, scope_b)
+                }
+                (_, ScopedRefView::Param(param_b)) => {
+                    let (inferred_b, scope_b) = scope_b.lookup_inferred(&param_b.param_id)?;
+                    TypeExpr::intersection(a, &inferred_b, scope_a, &scope_b)
+                }
+                (ScopedRefView::ScopedExpr { expr, scope: portal }, _) => {
+                    TypeExpr::intersection(expr, b, portal, scope_b)
+                }
+            },
 
-            // Portals
-            (TypeExpr::ScopePortal { expr, scope }, b) => {
-                TypeExpr::intersection(expr, b, &scope.as_scope_portal().portal, scope_b)
-            }
-            (a, TypeExpr::ScopePortal { expr, scope }) => {
-                TypeExpr::intersection(a, expr, scope_a, &scope.as_scope_portal().portal)
-            }
+            (TypeExpr::Ref(ref_a), b) => match ref_a.view() {
+                ScopedRefView::Param(param_a) => {
+                    let (inferred_a, scope_a) = scope_a.lookup_inferred(&param_a.param_id)?;
+                    TypeExpr::intersection(&inferred_a, b, &scope_a, scope_b)
+                }
+                ScopedRefView::ScopedExpr { expr, scope: portal } => TypeExpr::intersection(expr, b, portal, scope_b),
+            },
+
+            (a, TypeExpr::Ref(ref_b)) => match ref_b.view() {
+                ScopedRefView::Param(param_b) => {
+                    let (inferred_b, scope_b) = scope_b.lookup_inferred(&param_b.param_id)?;
+                    TypeExpr::intersection(a, &inferred_b, scope_a, &scope_b)
+                }
+                ScopedRefView::ScopedExpr { expr, scope: portal } => TypeExpr::intersection(a, expr, scope_a, portal),
+            },
 
             (TypeExpr::Intersection(a_a, a_b), b) => {
                 let (intersection_a, intersection_a_scope) = TypeExpr::intersection(a_a, a_b, scope_a, scope_a)?;
@@ -71,13 +76,13 @@ impl<T: Type, Sa: AsScopePortal<T>> TypeExpr<T, Sa> {
                 TypeExpr::intersection(a, &intersection_b, scope_a, &intersection_b_scope)
             }
             (TypeExpr::Operation { a, b, operator }, b_expr) => {
-                let a_normalized = a.normalize(scope_a);
-                let b_normalized = b.normalize(scope_a);
+                let a_normalized = a.normalize_concrete(scope_a)?;
+                let b_normalized = b.normalize_concrete(scope_a)?;
                 TypeExpr::intersection(&T::operation(&a_normalized, operator, &b_normalized), b_expr, scope_a, scope_b)
             }
             (a_expr, TypeExpr::Operation { a, b, operator }) => {
-                let a_normalized = a.normalize(scope_b);
-                let b_normalized = b.normalize(scope_b);
+                let a_normalized = a.normalize_concrete(scope_b)?;
+                let b_normalized = b.normalize_concrete(scope_b)?;
                 TypeExpr::intersection(a_expr, &T::operation(&a_normalized, operator, &b_normalized), scope_a, scope_b)
             }
 
@@ -91,14 +96,12 @@ impl<T: Type, Sa: AsScopePortal<T>> TypeExpr<T, Sa> {
             (TypeExpr::Type(a), TypeExpr::Type(b)) if a == b => {
                 Some((TypeExpr::Type(a.clone()), ScopePointer::clone(scope_a)))
             }
-            (TypeExpr::Constructor { inner, .. }, TypeExpr::Type(inst)) if inner == inst => Some((
-                a.clone().map_scope_portals(&mut |s: Sa| s.as_scope_portal().clone()),
-                ScopePointer::clone(scope_a),
-            )),
-            (TypeExpr::Type(inst), TypeExpr::Constructor { inner, .. }) if inner == inst => Some((
-                b.clone().map_scope_portals(&mut |s: Sb| s.as_scope_portal().clone()),
-                ScopePointer::clone(scope_b),
-            )),
+            (TypeExpr::Constructor { inner, .. }, TypeExpr::Type(inst)) if inner == inst => {
+                Some((a.clone().into_scoped(), ScopePointer::clone(scope_a)))
+            }
+            (TypeExpr::Type(inst), TypeExpr::Constructor { inner, .. }) if inner == inst => {
+                Some((b.clone().into_scoped(), ScopePointer::clone(scope_b)))
+            }
             (
                 TypeExpr::Constructor { inner: inner_a, parameters: parameters_a },
                 TypeExpr::Constructor { inner: inner_b, parameters: parameters_b },
@@ -111,24 +114,13 @@ impl<T: Type, Sa: AsScopePortal<T>> TypeExpr<T, Sa> {
                     let (intersected_param, intersected_scope) =
                         match (parameters_a.get(ident), parameters_b.get(ident)) {
                             (Some(pa), Some(pb)) => TypeExpr::intersection(pa, pb, scope_a, scope_b)?,
-                            (Some(pa), None) => (
-                                pa.clone().map_scope_portals(&mut |s: Sa| s.as_scope_portal().clone()),
-                                ScopePointer::clone(scope_a),
-                            ),
-                            (None, Some(pb)) => (
-                                pb.clone().map_scope_portals(&mut |s: Sb| s.as_scope_portal().clone()),
-                                ScopePointer::clone(scope_b),
-                            ),
+                            (Some(pa), None) => (pa.clone().into_scoped(), ScopePointer::clone(scope_a)),
+                            (None, Some(pb)) => (pb.clone().into_scoped(), ScopePointer::clone(scope_b)),
                             (None, None) => unreachable!(),
                         };
 
-                    intersected_params.insert(
-                        ident.clone(),
-                        TypeExpr::ScopePortal {
-                            expr: Box::new(intersected_param),
-                            scope: ScopePortal { portal: intersected_scope },
-                        },
-                    );
+                    intersected_params
+                        .insert(ident.clone(), TypeExpr::scope_portal(intersected_param, intersected_scope));
                 }
                 Some((
                     TypeExpr::Constructor { inner: inner_a.clone(), parameters: intersected_params },
@@ -176,14 +168,8 @@ impl<T: Type, Sa: AsScopePortal<T>> TypeExpr<T, Sa> {
                 } else {
                     Some((
                         TypeExpr::Union(
-                            Box::new(TypeExpr::ScopePortal {
-                                expr: Box::new(a_intersection),
-                                scope: ScopePortal { portal: a_scope },
-                            }),
-                            Box::new(TypeExpr::ScopePortal {
-                                expr: Box::new(b_intersection),
-                                scope: ScopePortal { portal: b_scope },
-                            }),
+                            Box::new(TypeExpr::scope_portal(a_intersection, a_scope)),
+                            Box::new(TypeExpr::scope_portal(b_intersection, b_scope)),
                         ),
                         ScopePointer::new_root(),
                     ))
@@ -198,14 +184,8 @@ impl<T: Type, Sa: AsScopePortal<T>> TypeExpr<T, Sa> {
                 } else {
                     Some((
                         TypeExpr::Union(
-                            Box::new(TypeExpr::ScopePortal {
-                                expr: Box::new(b_intersection),
-                                scope: ScopePortal { portal: b_scope },
-                            }),
-                            Box::new(TypeExpr::ScopePortal {
-                                expr: Box::new(c_intersection),
-                                scope: ScopePortal { portal: c_scope },
-                            }),
+                            Box::new(TypeExpr::scope_portal(b_intersection, b_scope)),
+                            Box::new(TypeExpr::scope_portal(c_intersection, c_scope)),
                         ),
                         ScopePointer::new_root(),
                     ))

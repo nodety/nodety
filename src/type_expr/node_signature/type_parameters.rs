@@ -1,7 +1,7 @@
 use crate::{
     Type,
     scope::{LocalParamID, type_parameter::TypeParameter},
-    type_expr::{TypeExprScope, Unscoped},
+    type_expr::{ParamRef, TypeRef},
 };
 use std::{
     collections::BTreeMap,
@@ -24,57 +24,57 @@ use tsify::Tsify;
 #[cfg_attr(
     feature = "serde",
     serde(bound(
-        serialize = "T: Serialize, T::Operator: Serialize, S: Serialize",
-        deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>, S: Deserialize<'de>"
+        serialize = "T: Serialize, T::Operator: Serialize, R: Serialize",
+        deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>, R: Deserialize<'de>"
     ))
 )]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
-#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, S: JsonSchema"))]
+#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, R: JsonSchema"))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
-pub struct TypeParameters<T: Type, S: TypeExprScope = Unscoped>(pub BTreeMap<LocalParamID, TypeParameter<T, S>>);
+pub struct TypeParameters<T: Type, R: TypeRef = ParamRef>(pub BTreeMap<LocalParamID, TypeParameter<T, R>>);
 
-impl<T: Type, S: TypeExprScope> Deref for TypeParameters<T, S> {
-    type Target = BTreeMap<LocalParamID, TypeParameter<T, S>>;
+impl<T: Type, R: TypeRef> Deref for TypeParameters<T, R> {
+    type Target = BTreeMap<LocalParamID, TypeParameter<T, R>>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<T: Type, S: TypeExprScope> DerefMut for TypeParameters<T, S> {
+impl<T: Type, R: TypeRef> DerefMut for TypeParameters<T, R> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<T: Type, S: TypeExprScope> Default for TypeParameters<T, S> {
+impl<T: Type, R: TypeRef> Default for TypeParameters<T, R> {
     fn default() -> Self {
         Self(BTreeMap::new())
     }
 }
 
-impl<T: Type, S: TypeExprScope> From<BTreeMap<LocalParamID, TypeParameter<T, S>>> for TypeParameters<T, S> {
-    fn from(map: BTreeMap<LocalParamID, TypeParameter<T, S>>) -> Self {
+impl<T: Type, R: TypeRef> From<BTreeMap<LocalParamID, TypeParameter<T, R>>> for TypeParameters<T, R> {
+    fn from(map: BTreeMap<LocalParamID, TypeParameter<T, R>>) -> Self {
         Self(map)
     }
 }
 
-impl<T: Type, S: TypeExprScope> FromIterator<(LocalParamID, TypeParameter<T, S>)> for TypeParameters<T, S> {
-    fn from_iter<I: IntoIterator<Item = (LocalParamID, TypeParameter<T, S>)>>(iter: I) -> Self {
+impl<T: Type, R: TypeRef> FromIterator<(LocalParamID, TypeParameter<T, R>)> for TypeParameters<T, R> {
+    fn from_iter<I: IntoIterator<Item = (LocalParamID, TypeParameter<T, R>)>>(iter: I) -> Self {
         Self(iter.into_iter().collect::<BTreeMap<_, _>>())
     }
 }
 
-impl<T: Type, S: TypeExprScope> IntoIterator for TypeParameters<T, S> {
-    type Item = (LocalParamID, TypeParameter<T, S>);
-    type IntoIter = std::collections::btree_map::IntoIter<LocalParamID, TypeParameter<T, S>>;
+impl<T: Type, R: TypeRef> IntoIterator for TypeParameters<T, R> {
+    type Item = (LocalParamID, TypeParameter<T, R>);
+    type IntoIter = std::collections::btree_map::IntoIter<LocalParamID, TypeParameter<T, R>>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
 }
 
-impl<'a, T: Type, S: TypeExprScope> IntoIterator for &'a TypeParameters<T, S> {
-    type Item = (&'a LocalParamID, &'a TypeParameter<T, S>);
-    type IntoIter = std::collections::btree_map::Iter<'a, LocalParamID, TypeParameter<T, S>>;
+impl<'a, T: Type, R: TypeRef> IntoIterator for &'a TypeParameters<T, R> {
+    type Item = (&'a LocalParamID, &'a TypeParameter<T, R>);
+    type IntoIter = std::collections::btree_map::Iter<'a, LocalParamID, TypeParameter<T, R>>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
     }

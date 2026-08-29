@@ -1,7 +1,7 @@
 use crate::{
     scope::{ScopePointer, type_parameter::TypeParameter},
     r#type::Type,
-    type_expr::{ScopePortal, ScopedTypeExpr},
+    type_expr::{ScopedTypeExpr, ScopedTypeRef},
 };
 
 /// A candidate for a type parameter.
@@ -18,7 +18,7 @@ impl<T: Type> Candidate<T> {
     /// Returns `None` if the parameter bound is uninferred or no candidate satisfies it.
     pub fn pick_for_param(
         mut candidates: Vec<Candidate<T>>,
-        type_param: &TypeParameter<T, ScopePortal<T>>,
+        type_param: &TypeParameter<T, ScopedTypeRef<T>>,
         param_scope: &ScopePointer<T>,
     ) -> Option<Candidate<T>> {
         if let Some(bound) = &type_param.bound

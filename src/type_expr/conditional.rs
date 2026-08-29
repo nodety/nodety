@@ -1,7 +1,7 @@
 use crate::{
     scope::{LocalParamID, Scope, ScopePointer, type_parameter::TypeParameter},
     r#type::Type,
-    type_expr::{AsScopePortal, ScopePortal, ScopedTypeExpr, TypeExpr, TypeExprScope},
+    type_expr::{AsScopedRef, ParamRef, ScopedTypeExpr, ScopedTypeRef, TypeExpr, TypeRef},
 };
 use std::{borrow::Cow, collections::HashSet};
 
@@ -22,32 +22,39 @@ use tsify::Tsify;
     serde(
         rename_all = "camelCase",
         bound(
-            serialize = "T: Serialize, T::Operator: Serialize, S: Serialize",
-            deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>, S: Deserialize<'de>"
+            serialize = "T: Serialize, T::Operator: Serialize, R: Serialize",
+            deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>, R: Deserialize<'de>"
         )
     )
 )]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
-#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, S: JsonSchema"))]
+#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, R: JsonSchema"))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
-pub struct Conditional<T: Type, S: TypeExprScope> {
-    pub t_test: TypeExpr<T, S>,
-    pub t_test_bound: TypeExpr<T, S>,
-    pub t_then: TypeExpr<T, S>,
-    pub t_else: TypeExpr<T, S>,
+pub struct Conditional<T: Type, R: TypeRef> {
+    pub t_test: TypeExpr<T, R>,
+    pub t_test_bound: TypeExpr<T, R>,
+    pub t_then: TypeExpr<T, R>,
+    pub t_else: TypeExpr<T, R>,
     /// @todo
     pub infer: HashSet<LocalParamID>,
 }
 
-impl<T: Type, S: TypeExprScope> Conditional<T, S> {
-    pub(crate) fn map_scope_portals<SO: TypeExprScope>(self, mapper: &mut impl FnMut(S) -> SO) -> Conditional<T, SO> {
+impl<T: Type, R: TypeRef> Conditional<T, R> {
+    pub fn map_refs<RO: TypeRef>(self, mapper: &mut impl FnMut(R) -> RO) -> Conditional<T, RO> {
         Conditional {
-            t_test: self.t_test.map_scope_portals(mapper),
-            t_test_bound: self.t_test_bound.map_scope_portals(mapper),
-            t_then: self.t_then.map_scope_portals(mapper),
-            t_else: self.t_else.map_scope_portals(mapper),
+            t_test: self.t_test.map_refs(mapper),
+            t_test_bound: self.t_test_bound.map_refs(mapper),
+            t_then: self.t_then.map_refs(mapper),
+            t_else: self.t_else.map_refs(mapper),
             infer: self.infer,
         }
+    }
+}
+
+impl<T: Type, R: AsScopedRef<T>> Conditional<T, R> {
+    /// Widens `self` into the scope aware representation used internally.
+    pub fn into_scoped(self) -> Conditional<T, ScopedTypeRef<T>> {
+        self.map_refs(&mut |r: R| r.into_scoped_ref())
     }
 }
 
@@ -58,24 +65,18 @@ pub struct ConditionalDistribution<'a, T: Type> {
 }
 
 impl<'a, T: Type> ConditionalDistribution<'a, T> {
-    pub fn into_conditional(self, conditional: &Conditional<T, ScopePortal<T>>) -> Conditional<T, ScopePortal<T>> {
+    pub fn into_conditional(self, conditional: &Conditional<T, ScopedTypeRef<T>>) -> Conditional<T, ScopedTypeRef<T>> {
         Conditional {
             t_test: self.new_t_test.into_owned(),
             t_test_bound: conditional.t_test_bound.clone(),
-            t_then: TypeExpr::ScopePortal {
-                expr: Box::new(conditional.t_then.clone()),
-                scope: ScopePortal { portal: ScopePointer::clone(&self.new_then_else_scope) },
-            },
-            t_else: TypeExpr::ScopePortal {
-                expr: Box::new(conditional.t_else.clone()),
-                scope: ScopePortal { portal: self.new_then_else_scope },
-            },
+            t_then: TypeExpr::scope_portal(conditional.t_then.clone(), ScopePointer::clone(&self.new_then_else_scope)),
+            t_else: TypeExpr::scope_portal(conditional.t_else.clone(), self.new_then_else_scope),
             infer: HashSet::new(),
         }
     }
 }
 
-impl<T: Type, S: AsScopePortal<T>> Conditional<T, S> {
+impl<T: Type, R: AsScopedRef<T>> Conditional<T, R> {
     /// If the conditional can get distributed, returns a union for all the distributions.
     /// If it can't get distributed, checks if `t_test_bound` ⊒ `t_test` holds and returns the
     /// appropriate branch (or non if the relation is unknown).
@@ -87,12 +88,12 @@ impl<T: Type, S: AsScopePortal<T>> Conditional<T, S> {
         let (first_dist, remaining_dist) = self.build_conditional_distributions(scope);
         if remaining_dist.is_empty() {
             return match self.t_test_bound.supertype_of(&self.t_test, scope, scope) {
-                Supertype => Some(self.t_then.clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone())),
-                Unrelated(_) => Some(self.t_else.clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone())),
+                Supertype => Some(self.t_then.clone().into_scoped()),
+                Unrelated(_) => Some(self.t_else.clone().into_scoped()),
                 Unknown => return None,
             };
         }
-        let scoped_self = self.clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone());
+        let scoped_self = self.clone().into_scoped();
         let mut current = TypeExpr::Conditional(Box::new(first_dist.into_conditional(&scoped_self)));
         for distribution in remaining_dist {
             current = TypeExpr::Union(
@@ -109,12 +110,11 @@ impl<T: Type, S: AsScopePortal<T>> Conditional<T, S> {
         scope: &ScopePointer<T>,
     ) -> (ConditionalDistribution<'a, T>, Vec<ConditionalDistribution<'a, T>>) {
         let mut distributions = vec![];
-        let t_test_scoped: ScopedTypeExpr<T> =
-            self.t_test.clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone());
+        let t_test_scoped: ScopedTypeExpr<T> = self.t_test.clone().into_scoped();
         t_test_scoped.traverse_union(scope, &mut |union_expr, union_expr_scope| {
             let mut inferred_scope = Scope::new_child(scope);
             let union_expr_scoped = union_expr.clone();
-            if let TypeExpr::TypeParameter(param, _infer) = self.t_test {
+            if let Some(&ParamRef { param_id: param, .. }) = self.t_test.as_param() {
                 inferred_scope.define(param, TypeParameter::default());
                 let _ = inferred_scope.infer(&param, union_expr_scoped.clone(), ScopePointer::clone(union_expr_scope));
                 // println!("inferred {param:?}={union_expr:?}");
@@ -141,7 +141,7 @@ impl<T: Type, S: AsScopePortal<T>> Conditional<T, S> {
 //     t_test_bound: &ScopedTypeExpr<T>,
 //     scope: &ScopePointer<T>, // The scope for source and target
 //     param: GlobalParameter<T>,
-// ) -> TypeExpr<T, ScopePortal<T>> {
+// ) -> TypeExpr<T, ScopedTypeRef<T>> {
 //     source.collect_candidates(source, &param, Variance::Covariant, scope, scope, false)
 // }
 

@@ -3,7 +3,7 @@ use nodety::{
     NodeSignature, TypeHints,
     demo_type::DemoType,
     scope::LocalParamID,
-    type_expr::{TypeExpr, Unscoped},
+    type_expr::{NoRef, ParamRef, TypeExpr},
 };
 use std::str::FromStr;
 
@@ -36,7 +36,7 @@ fn test_format_union() {
 
 #[test]
 fn test_format_intersection() {
-    let e: TypeExpr<DemoType, Unscoped> =
+    let e: TypeExpr<DemoType, ParamRef> =
         TypeExpr::Intersection(Box::new(expr_u("{a: Integer}")), Box::new(expr_u("{b: String}")));
     let formatted = format!("{}", e);
     assert!(formatted.contains(" & "), "Expected '&' in: {formatted}");
@@ -118,13 +118,13 @@ fn test_format_port_types_empty() {
 
 #[test]
 fn test_format_type_parameter_with_infer_false() {
-    let e: TypeExpr<DemoType, Unscoped> = TypeExpr::TypeParameter(LocalParamID::from('T'), false);
+    let e: TypeExpr<DemoType, ParamRef> = TypeExpr::param_with_infer(LocalParamID::from('T'), false);
     assert_eq!("!T", format!("{}", e));
 }
 
 #[test]
 fn test_format_type_parameter_numeric_id() {
-    let e: TypeExpr<DemoType, Unscoped> = TypeExpr::TypeParameter(LocalParamID(0), true);
+    let e: TypeExpr<DemoType, ParamRef> = TypeExpr::param_with_infer(LocalParamID(0), true);
     assert_eq!("#0", format!("{}", e));
 }
 
@@ -143,7 +143,7 @@ fn test_format_roundtrip_complex_signature() {
 #[test]
 fn test_format_type_hints_roundtrip() {
     let input = "T = Integer, U = String";
-    let hints: TypeHints<DemoType, Unscoped> = input.parse().unwrap();
+    let hints: TypeHints<DemoType, ParamRef> = input.parse().unwrap();
     assert_eq!(input, format!("{}", hints));
 }
 
@@ -159,4 +159,19 @@ fn test_format_string_utility() {
     assert_eq!("\"\"", format_string(""));
     assert_eq!("\"hello world\"", format_string("hello world"));
     assert_eq!("\"hello\\\"world\"", format_string("hello\"world"));
+}
+
+/// Formatting is available for every reference kind that has a notation, which is
+/// [NoRef] as well as [ParamRef].
+#[test]
+fn test_format_concrete_expr() {
+    let concrete: TypeExpr<DemoType, NoRef> =
+        expr_u("Array<Integer> | (Integer) -> (String)").try_into_concrete().unwrap();
+    assert_eq!("Array<Integer> | (Integer) -> (String)", format!("{concrete}"));
+}
+
+#[test]
+fn test_format_concrete_node_signature() {
+    let sig = NodeSignature::<DemoType>::from_str("(Integer) -> (String)").unwrap().try_into_concrete().unwrap();
+    assert_eq!("(Integer) -> (String)", format!("{sig}"));
 }
