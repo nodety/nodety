@@ -1,7 +1,7 @@
 use nodety::Nodety;
 use nodety::demo_type::DemoType;
 use nodety::nodety::Edge;
-use nodety::type_expr::{ScopePortal, ScopedTypeExpr, TypeExpr, Unscoped, node_signature::NodeSignature};
+use nodety::type_expr::{ParamRef, ScopedTypeExpr, ScopedTypeRef, TypeExpr, node_signature::NodeSignature};
 use std::str::FromStr;
 
 #[allow(dead_code)]
@@ -19,13 +19,13 @@ pub fn graph(nodes: Vec<NodeSignature<DemoType>>, edges: Vec<(usize, usize, usiz
 
 #[allow(dead_code)]
 #[track_caller]
-pub fn sig(input: &str) -> NodeSignature<DemoType, ScopePortal<DemoType>> {
+pub fn sig(input: &str) -> NodeSignature<DemoType, ScopedTypeRef<DemoType>> {
     NodeSignature::from_str(input).expect(&format!("Failed to parse {input}"))
 }
 
 #[allow(dead_code)]
 #[track_caller]
-pub fn sig_u(input: &str) -> NodeSignature<DemoType, Unscoped> {
+pub fn sig_u(input: &str) -> NodeSignature<DemoType, ParamRef> {
     NodeSignature::from_str(input).expect(&format!("Failed to parse {input}"))
 }
 
@@ -37,6 +37,6 @@ pub fn expr(input: &str) -> ScopedTypeExpr<DemoType> {
 
 #[allow(dead_code)]
 #[track_caller]
-pub fn expr_u(input: &str) -> TypeExpr<DemoType, Unscoped> {
+pub fn expr_u(input: &str) -> TypeExpr<DemoType, ParamRef> {
     TypeExpr::from_str(input).expect(&format!("Failed to parse {input}"))
 }

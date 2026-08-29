@@ -3,17 +3,19 @@
 //! **Note:** The parsers defined here are not optimized for performance.
 //! When parsing many types, consider implementing caching of parsed types.
 //!
-//! **A note on scopes (`S`)** Since parsers never parse the [TypeExpr::ScopePortal] variant, they can parse any `S`.
-//! For this reason all parsers are generic over S.
+//! **A note on references (`R`)** Parsers can produce type parameter references, so they are generic over any
+//! [ParamTypeRef](crate::type_expr::ParamTypeRef). A ref free [NoRef](crate::type_expr::NoRef) expression can not be
+//! parsed directly; parse into [ParamRef](crate::type_expr::ParamRef) and use
+//! [try_into_concrete](crate::type_expr::TypeExpr::try_into_concrete).
 #[cfg(test)]
-use crate::type_expr::{ScopedTypeExpr, UnscopedTypeExpr};
+use crate::type_expr::{ParameterizedTypeExpr, ScopedTypeExpr};
 use crate::{
     demo_type::{DemoOperator, DemoType, SIUnit},
     nodety::node::TypeHints,
     scope::{LocalParamID, Scope, type_parameter::TypeParameter},
     r#type::Type,
     type_expr::{
-        ScopePortal, TypeExpr, TypeExprScope, Unscoped,
+        ParamRef, ParamTypeRef, ScopedTypeRef, TypeExpr,
         conditional::Conditional,
         node_signature::{NodeSignature, port_types::PortTypes, type_parameters::TypeParameters},
     },
@@ -82,7 +84,7 @@ impl ParseError {
 
 /// Trait for types that can be parsed from text notation (e.g. `"<T>(T) -> (T)"`).
 pub trait ParsableType: Type {
-    fn parse<S: TypeExprScope + Clone>(input: &str) -> IResult<&str, TypeExpr<Self, S>>;
+    fn parse<R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<Self, R>>;
 
     fn parse_operator(input: &str) -> IResult<&str, Self::Operator> {
         Err(nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Tag)))
@@ -119,7 +121,7 @@ pub fn parse_type_parameter(input: &str) -> IResult<&str, (LocalParamID, bool)> 
         .parse(input)
 }
 
-pub fn parse_type_expr<T: ParsableType, S: TypeExprScope>(input: &str) -> IResult<&str, TypeExpr<T, S>> {
+pub fn parse_type_expr<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
     alt((
         parse_type_expr_conditional,
         parse_type_expr_union,
@@ -131,7 +133,7 @@ pub fn parse_type_expr<T: ParsableType, S: TypeExprScope>(input: &str) -> IResul
     .parse(input)
 }
 
-pub fn parse_type_expr_union<T: ParsableType, S: TypeExprScope>(input: &str) -> IResult<&str, TypeExpr<T, S>> {
+pub fn parse_type_expr_union<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
     let (input, first) = parse_atomic_type_expr(input)?;
     let (input, rest) = many0((ws0(char('|')), parse_atomic_type_expr)).parse(input)?;
 
@@ -145,7 +147,7 @@ pub fn parse_type_expr_union<T: ParsableType, S: TypeExprScope>(input: &str) -> 
 }
 
 /// Index accesses chain, so `a["x"]["y"]` nests left to right.
-fn parse_type_expr_index<T: ParsableType, S: TypeExprScope>(input: &str) -> IResult<&str, TypeExpr<T, S>> {
+fn parse_type_expr_index<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
     let (input, first) = parse_atomic_type_expr(input)?;
     let (input, indices) = many0(delimited(char('['), parse_type_expr, char(']'))).parse(input)?;
 
@@ -159,11 +161,11 @@ fn parse_type_expr_index<T: ParsableType, S: TypeExprScope>(input: &str) -> IRes
     Ok((input, result))
 }
 
-fn parse_type_expr_in_brackets<T: ParsableType, S: TypeExprScope>(input: &str) -> IResult<&str, TypeExpr<T, S>> {
+fn parse_type_expr_in_brackets<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
     (ws0(char('(')), parse_type_expr, multispace0, char(')')).map(|(_, expr, _, _)| expr).parse(input)
 }
 
-fn parse_type_expr_intersection<T: ParsableType, S: TypeExprScope>(input: &str) -> IResult<&str, TypeExpr<T, S>> {
+fn parse_type_expr_intersection<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
     let (input, first) = parse_atomic_type_expr(input)?;
     let (input, rest) = many0((ws0(char('&')), parse_atomic_type_expr)).parse(input)?;
 
@@ -176,13 +178,13 @@ fn parse_type_expr_intersection<T: ParsableType, S: TypeExprScope>(input: &str) 
     Ok((input, result))
 }
 
-fn parse_type_expr_operation<T: ParsableType, S: TypeExprScope>(input: &str) -> IResult<&str, TypeExpr<T, S>> {
+fn parse_type_expr_operation<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
     (parse_atomic_type_expr, ws0(T::parse_operator), parse_atomic_type_expr)
         .map(|(a, operator, b)| TypeExpr::Operation { a: Box::new(a), operator, b: Box::new(b) })
         .parse(input)
 }
 
-fn parse_type_expr_conditional<T: ParsableType, S: TypeExprScope>(input: &str) -> IResult<&str, TypeExpr<T, S>> {
+fn parse_type_expr_conditional<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
     (
         parse_atomic_type_expr,
         ws1(tag("extends")),
@@ -198,14 +200,14 @@ fn parse_type_expr_conditional<T: ParsableType, S: TypeExprScope>(input: &str) -
         .parse(input)
 }
 
-fn parse_atomic_type_expr<T: ParsableType, S: TypeExprScope>(input: &str) -> IResult<&str, TypeExpr<T, S>> {
+fn parse_atomic_type_expr<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
     alt((
         parse_node_signature.map(|sig| TypeExpr::NodeSignature(Box::new(sig))),
         T::parse,
         value(TypeExpr::Any, tag("Any")),
         value(TypeExpr::Never, tag("Never")),
         parse_keyof,
-        parse_type_parameter.map(|(id, infer)| TypeExpr::TypeParameter(id, infer)),
+        parse_type_parameter.map(|(id, infer)| TypeExpr::param_with_infer(id, infer)),
         parse_type_expr_in_brackets,
     ))
     .parse(input)
@@ -214,25 +216,25 @@ fn parse_atomic_type_expr<T: ParsableType, S: TypeExprScope>(input: &str) -> IRe
 /// # Parses
 /// (type expr, default types)
 #[allow(clippy::type_complexity)]
-fn parse_sig_input_output<T: ParsableType, S: TypeExprScope>(
+fn parse_sig_input_output<T: ParsableType, R: ParamTypeRef>(
     input: &str,
-) -> IResult<&str, (TypeExpr<T, S>, BTreeMap<usize, TypeExpr<T, S>>)> {
+) -> IResult<&str, (TypeExpr<T, R>, BTreeMap<usize, TypeExpr<T, R>>)> {
     alt((
         value((TypeExpr::Any, BTreeMap::new()), tag("Any")),
         value((TypeExpr::Never, BTreeMap::new()), tag("Never")),
-        parse_type_parameter.map(|(id, infer)| (TypeExpr::TypeParameter(id, infer), BTreeMap::new())),
+        parse_type_parameter.map(|(id, infer)| (TypeExpr::param_with_infer(id, infer), BTreeMap::new())),
         parse_port_types,
     ))
     .parse(input)
 }
 
-fn parse_keyof<T: ParsableType, S: TypeExprScope>(input: &str) -> IResult<&str, TypeExpr<T, S>> {
+fn parse_keyof<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
     (ws0(tag("keyof ")), parse_atomic_type_expr).map(|(_, expr)| TypeExpr::KeyOf(Box::new(expr))).parse(input)
 }
 
-fn parse_type_parameter_declaration<T: ParsableType, S: TypeExprScope>(
+fn parse_type_parameter_declaration<T: ParsableType, R: ParamTypeRef>(
     input: &str,
-) -> IResult<&str, (LocalParamID, TypeParameter<T, S>)> {
+) -> IResult<&str, (LocalParamID, TypeParameter<T, R>)> {
     (
         parse_type_parameter,
         opt((space1, tag("extends"), space1, parse_type_expr)),
@@ -250,9 +252,9 @@ fn parse_type_parameter_declaration<T: ParsableType, S: TypeExprScope>(
         .parse(input)
 }
 
-pub fn parse_type_parameter_declarations<T: ParsableType, S: TypeExprScope>(
+pub fn parse_type_parameter_declarations<T: ParsableType, R: ParamTypeRef>(
     input: &str,
-) -> IResult<&str, TypeParameters<T, S>> {
+) -> IResult<&str, TypeParameters<T, R>> {
     (char('<'), separated_list0(ws0(char(',')), parse_type_parameter_declaration), char('>'))
         .map(|(_, params, _)| params.into_iter().collect())
         .parse(input)
@@ -261,12 +263,12 @@ pub fn parse_type_parameter_declarations<T: ParsableType, S: TypeExprScope>(
 /// # Parses
 /// (port types, default types)
 #[allow(clippy::type_complexity)]
-fn parse_port_types<T: ParsableType, S: TypeExprScope>(
+fn parse_port_types<T: ParsableType, R: ParamTypeRef>(
     input: &str,
-) -> IResult<&str, (TypeExpr<T, S>, BTreeMap<usize, TypeExpr<T, S>>)> {
+) -> IResult<&str, (TypeExpr<T, R>, BTreeMap<usize, TypeExpr<T, R>>)> {
     alt((
         (char('('), space0, char(')'))
-            .map(|_| (TypeExpr::PortTypes(Box::new(PortTypes::<T, S> { ports: vec![], varg: None })), BTreeMap::new())),
+            .map(|_| (TypeExpr::PortTypes(Box::new(PortTypes::<T, R> { ports: vec![], varg: None })), BTreeMap::new())),
         (
             ws0(char('(')),
             separated_list1(
@@ -278,7 +280,7 @@ fn parse_port_types<T: ParsableType, S: TypeExprScope>(
         )
             .map(|(_, args, varg, _)| {
                 let mut ports = Vec::new();
-                let mut default_types: BTreeMap<usize, TypeExpr<T, S>> = BTreeMap::new();
+                let mut default_types: BTreeMap<usize, TypeExpr<T, R>> = BTreeMap::new();
                 for (i, (_ident, port_type, default_type)) in args.into_iter().enumerate() {
                     ports.push(port_type);
                     if let Some((_, default_type)) = default_type {
@@ -288,13 +290,13 @@ fn parse_port_types<T: ParsableType, S: TypeExprScope>(
                 (TypeExpr::PortTypes(Box::new(PortTypes { ports, varg: varg.map(|v| v.2) })), default_types)
             }),
         (char('('), ws0(tag("...")), parse_type_expr, space0, char(')')).map(|(_, _, varg, _, _)| {
-            (TypeExpr::PortTypes(Box::new(PortTypes::<T, S> { ports: vec![], varg: Some(varg) })), BTreeMap::new())
+            (TypeExpr::PortTypes(Box::new(PortTypes::<T, R> { ports: vec![], varg: Some(varg) })), BTreeMap::new())
         }),
     ))
     .parse(input)
 }
 
-fn parse_node_signature<T: ParsableType, S: TypeExprScope>(input: &str) -> IResult<&str, NodeSignature<T, S>> {
+fn parse_node_signature<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, NodeSignature<T, R>> {
     (opt(parse_type_parameter_declarations), space0, parse_sig_input_output, ws0(tag("->")), parse_sig_input_output)
         .map(|(params, _, (inputs, default_input_types), _, (outputs, _discarded_default_outputs))| NodeSignature {
             parameters: params.unwrap_or_default(),
@@ -307,7 +309,7 @@ fn parse_node_signature<T: ParsableType, S: TypeExprScope>(input: &str) -> IResu
 }
 
 impl ParsableType for DemoType {
-    fn parse<S: TypeExprScope>(input: &str) -> IResult<&str, TypeExpr<Self, S>> {
+    fn parse<R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<Self, R>> {
         alt((
             value(TypeExpr::Type(DemoType::Integer), tag("Integer")),
             value(TypeExpr::Type(DemoType::Float), tag("Float")),
@@ -352,7 +354,7 @@ pub fn parse_si_unit(input: &str) -> IResult<&str, (SIUnit, f64)> {
     Ok((rest, (unit, scale)))
 }
 
-fn parse_array<S: TypeExprScope>(input: &str) -> IResult<&str, TypeExpr<DemoType, S>> {
+fn parse_array<R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<DemoType, R>> {
     (tag("Array"), opt((char('<'), parse_type_expr, char('>'))))
         .map(|(_, elements_type)| match elements_type {
             Some((_, elements_type, _)) => TypeExpr::Constructor {
@@ -372,7 +374,7 @@ fn parse_identifier(input: &str) -> IResult<&str, &str> {
     recognize(pair(alt((alpha1, tag("_"))), many0(alt((alphanumeric1, tag("_"), tag("-")))))).parse(input)
 }
 
-pub fn parse_record<T: ParsableType, S: TypeExprScope>(input: &str) -> IResult<&str, BTreeMap<String, TypeExpr<T, S>>> {
+pub fn parse_record<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, BTreeMap<String, TypeExpr<T, R>>> {
     map(
         delimited(
             ws0(char('{')),
@@ -431,13 +433,13 @@ pub fn parse_quoted_string(input: &str) -> IResult<&str, String> {
 }
 
 /// Parses type hints (e.g. `T = Integer, U = String`). Used internally by [`TypeHints::try_parse`].
-fn parse_type_hints<T: ParsableType, S: TypeExprScope>(s: &str) -> IResult<&str, TypeHints<T, S>> {
+fn parse_type_hints<T: ParsableType, R: ParamTypeRef>(s: &str) -> IResult<&str, TypeHints<T, R>> {
     separated_list0(ws0(char(',')), (parse_type_parameter, ws0(char('=')), parse_type_expr))
-        .map(|items| items.into_iter().map(|((param, _infer), _, hint)| (param, hint)).collect::<TypeHints<T, S>>())
+        .map(|items| items.into_iter().map(|((param, _infer), _, hint)| (param, hint)).collect::<TypeHints<T, R>>())
         .parse(s)
 }
 
-impl<T: ParsableType, S: TypeExprScope> NodeSignature<T, S> {
+impl<T: ParsableType, R: ParamTypeRef> NodeSignature<T, R> {
     /// Parse the entire input as a node signature. Returns an error if parsing fails
     /// or if any input remains after parsing.
     pub fn try_parse(input: &str) -> Result<Self, ParseError> {
@@ -458,7 +460,7 @@ impl<T: ParsableType, S: TypeExprScope> NodeSignature<T, S> {
     }
 }
 
-impl<T: ParsableType, S: TypeExprScope> TypeExpr<T, S> {
+impl<T: ParsableType, R: ParamTypeRef> TypeExpr<T, R> {
     /// Parse the entire input as a type expression. Returns an error if parsing fails
     /// or if any input remains after parsing.
     pub fn try_parse(input: &str) -> Result<Self, ParseError> {
@@ -483,14 +485,14 @@ impl<T: ParsableType> Scope<T> {
     /// Parse the entire input as scope. Returns an error if parsing fails
     /// or if any input remains after parsing.
     pub fn try_parse(input: &str) -> Result<Self, ParseError> {
-        match parse_type_parameter_declarations::<T, Unscoped>(input) {
+        match parse_type_parameter_declarations::<T, ParamRef>(input) {
             Ok((rest, params)) => {
                 if rest.trim().is_empty() {
                     let mut scope = Scope::new_root();
                     for (param_id, param) in params {
                         scope.define(
                             param_id,
-                            <TypeParameter<T, Unscoped> as Into<TypeParameter<T, ScopePortal<T>>>>::into(param),
+                            <TypeParameter<T, ParamRef> as Into<TypeParameter<T, ScopedTypeRef<T>>>>::into(param),
                         );
                     }
                     Ok(scope)
@@ -507,7 +509,7 @@ impl<T: ParsableType> Scope<T> {
     }
 }
 
-impl<T: ParsableType, S: TypeExprScope> FromStr for TypeExpr<T, S> {
+impl<T: ParsableType, R: ParamTypeRef> FromStr for TypeExpr<T, R> {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -515,7 +517,7 @@ impl<T: ParsableType, S: TypeExprScope> FromStr for TypeExpr<T, S> {
     }
 }
 
-impl<T: ParsableType, S: TypeExprScope> FromStr for NodeSignature<T, S> {
+impl<T: ParsableType, R: ParamTypeRef> FromStr for NodeSignature<T, R> {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -531,11 +533,11 @@ impl<T: ParsableType> FromStr for Scope<T> {
     }
 }
 
-impl<T: ParsableType, S: TypeExprScope> TypeParameters<T, S> {
+impl<T: ParsableType, R: ParamTypeRef> TypeParameters<T, R> {
     /// Parse the entire input as type parameters. Returns an error if parsing fails
     /// or if any input remains after parsing.
     pub fn try_parse(input: &str) -> Result<Self, ParseError> {
-        match parse_type_parameter_declarations::<T, S>(input) {
+        match parse_type_parameter_declarations::<T, R>(input) {
             Ok((rest, params)) => {
                 if rest.trim().is_empty() {
                     Ok(params)
@@ -552,7 +554,7 @@ impl<T: ParsableType, S: TypeExprScope> TypeParameters<T, S> {
     }
 }
 
-impl<T: ParsableType, S: TypeExprScope> FromStr for TypeParameters<T, S> {
+impl<T: ParsableType, R: ParamTypeRef> FromStr for TypeParameters<T, R> {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -560,11 +562,11 @@ impl<T: ParsableType, S: TypeExprScope> FromStr for TypeParameters<T, S> {
     }
 }
 
-impl<T: ParsableType, S: TypeExprScope> TypeHints<T, S> {
+impl<T: ParsableType, R: ParamTypeRef> TypeHints<T, R> {
     /// Parse the entire input as type hints. Returns an error if parsing fails
     /// or if any input remains after parsing.
     pub fn try_parse(input: &str) -> Result<Self, ParseError> {
-        match parse_type_hints::<T, S>(input) {
+        match parse_type_hints::<T, R>(input) {
             Ok((rest, hints)) => {
                 if rest.trim().is_empty() {
                     Ok(hints)
@@ -581,7 +583,7 @@ impl<T: ParsableType, S: TypeExprScope> TypeHints<T, S> {
     }
 }
 
-impl<T: ParsableType, S: TypeExprScope> FromStr for TypeHints<T, S> {
+impl<T: ParsableType, R: ParamTypeRef> FromStr for TypeHints<T, R> {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -592,7 +594,7 @@ impl<T: ParsableType, S: TypeExprScope> FromStr for TypeHints<T, S> {
 /// Shorthand for tests.
 #[cfg(test)]
 #[track_caller]
-pub(crate) fn sig(input: &str) -> NodeSignature<DemoType, ScopePortal<DemoType>> {
+pub(crate) fn sig(input: &str) -> NodeSignature<DemoType, ScopedTypeRef<DemoType>> {
     NodeSignature::from_str(input).expect(&format!("Failed to parse {input}"))
 }
 
@@ -600,7 +602,7 @@ pub(crate) fn sig(input: &str) -> NodeSignature<DemoType, ScopePortal<DemoType>>
 #[cfg(test)]
 #[track_caller]
 #[allow(dead_code)]
-pub(crate) fn sig_u(input: &str) -> NodeSignature<DemoType, Unscoped> {
+pub(crate) fn sig_u(input: &str) -> NodeSignature<DemoType, ParamRef> {
     NodeSignature::from_str(input).expect(&format!("Failed to parse {input}"))
 }
 
@@ -608,14 +610,14 @@ pub(crate) fn sig_u(input: &str) -> NodeSignature<DemoType, Unscoped> {
 #[cfg(test)]
 #[track_caller]
 pub(crate) fn expr(input: &str) -> ScopedTypeExpr<DemoType> {
-    TypeExpr::<DemoType, ScopePortal<DemoType>>::from_str(input).expect(&format!("Failed to parse {input}"))
+    TypeExpr::<DemoType, ScopedTypeRef<DemoType>>::from_str(input).expect(&format!("Failed to parse {input}"))
 }
 
 /// Shorthand for tests.
 #[cfg(test)]
 #[track_caller]
-pub(crate) fn expr_u(input: &str) -> UnscopedTypeExpr<DemoType> {
-    TypeExpr::<DemoType, Unscoped>::from_str(input).expect(&format!("Failed to parse {input}"))
+pub(crate) fn expr_u(input: &str) -> ParameterizedTypeExpr<DemoType> {
+    TypeExpr::<DemoType, ParamRef>::from_str(input).expect(&format!("Failed to parse {input}"))
 }
 
 /// Shorthand for tests.

@@ -5,7 +5,7 @@ use crate::{
     nodety::inference::{Flow, InferenceConfig},
     scope::{Scope, ScopePointer},
     r#type::Type,
-    type_expr::{ScopePortal, ScopedTypeExpr, TypeExpr, node_signature::NodeSignature},
+    type_expr::{ScopedTypeExpr, ScopedTypeRef, TypeExpr, node_signature::NodeSignature},
 };
 use std::collections::BTreeMap;
 
@@ -46,7 +46,7 @@ pub struct Autocompletion<I> {
 /// Generic over `T` (the type system) and `I` (the identifier type for signatures, e.g. `i32` for wasm).
 #[derive(Debug, Clone, Default)]
 pub struct Autocomplete<T: Type, I: Ord + Clone> {
-    available_signatures: BTreeMap<I, NodeSignature<T, ScopePortal<T>>>,
+    available_signatures: BTreeMap<I, NodeSignature<T, ScopedTypeRef<T>>>,
 }
 
 /// Tries to rate a target as to how likely it is to be a good match for any source.
@@ -65,8 +65,8 @@ fn rank_autocompletion_target<T: Type>(target: &ScopedTypeExpr<T>, scope: &Scope
                 TypeExpr::Type(_) => score += 1,
 
                 // For type parameters, rate their bound
-                TypeExpr::TypeParameter(param, _infer) => {
-                    let Some((bound, bound_scope)) = scope.lookup_bound(param) else {
+                TypeExpr::Ref(ScopedTypeRef::Param(param)) => {
+                    let Some((bound, bound_scope)) = scope.lookup_bound(&param.param_id) else {
                         score -= 1;
                         return;
                     };
@@ -87,7 +87,7 @@ impl<T: Type, I: Ord + Clone> Autocomplete<T, I> {
     }
 
     /// Adds a node signature with the given identifier.
-    pub fn add_signature(&mut self, identifier: I, signature: impl Into<NodeSignature<T, ScopePortal<T>>>) {
+    pub fn add_signature(&mut self, identifier: I, signature: impl Into<NodeSignature<T, ScopedTypeRef<T>>>) {
         self.available_signatures.insert(identifier, signature.into());
     }
 

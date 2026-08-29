@@ -164,21 +164,26 @@
 //! It is a recursive type that is used to represent all type in nodety. Unions, intersections, etc.
 //! A TypeExpr can also represent a so called "NodeSignature" which is analog to a function signature in any programming language.
 //!
-//! If you've taken a look at the definition you might wonder what the second generic `S` parameter is for.
-//! When you define type expressions it will probably be set to Unscoped which is en empty enum aka the empty `!` type. Internally this gets converted to
-//! [ScopePortal](crate::type_expr::ScopePortal) which enables types to create scopes that reference outside their own scope.
-//! This is needed to enable some of the internal logic but uses an Rc so is neither send nor sync. Furthermore there is no meaningful way to
-//! serialize / deserialize it.
+//! If you've taken a look at the definition you might wonder what the second generic `R` parameter is for.
+//! It decides what an expression is allowed to *reference*, which lets the type system prove up front whether a
+//! type expression can be understood on its own or needs a [Scope](crate::scope::Scope) to make sense of it.
 //!
-//! Inside Nodety `S` can be one of these:
-//! - Unscoped - The expression does not jump between scopes
-//! - ScopePortal - The expression could jump between scopes (only used internally)
-//! - ErasedScopePortal - an expression that used to be a `TypeExpr<T, ScopePortal<T>>` but all scope portals got erased.
-//!   This is used for subtyping diagnostics to make the once scoped expression serializable.
+//! `R` can be one of these:
+//! - [NoRef](crate::type_expr::NoRef) - an empty enum (alias never) so the [TypeExpr] does not contain any type parameters or other references.
+//!   These dont require any additional context.
+//! - [ParamRef](crate::type_expr::ParamRef) - the expression may reference type parameters (`<T>(T) -> (T)`) but
+//!   never jumps between scopes. This is the default and what you get when parsing.
+//! - [ScopedTypeRef](crate::type_expr::ScopedTypeRef) - the expression may reference type parameters *and* may
+//!   carry sub expressions that live in a foreign scope ("scope portals"). This is what nodety uses internally.
+//!   It holds an [Rc] so it is neither send nor sync, and there is no meaningful way to serialize it.
 //!
 //! There are the following conversions:
-//! - `Unscoped` -> `ScopePortal` (lossless)
-//! - `ScopePortal` -> `ErasedScopePortal` (lossy)
+//! - `NoRef` -> `ParamRef` -> `ScopedTypeRef` (lossless, via [From] or `into_scoped`)
+//! - `ScopedTypeRef` -> `ParamRef` via
+//!   [try_remove_scope_portals](crate::type_expr::TypeExpr::try_remove_scope_portals) (lossless) or
+//!   [force_remove_scope_portals](crate::type_expr::TypeExpr::force_remove_scope_portals) (lossy)
+//! - any -> `NoRef` via [try_into_concrete](crate::type_expr::TypeExpr::try_into_concrete), which fails if the
+//!   expression references anything.
 //!
 //! ### Nodety
 //! Next up is [`Nodety`]. A data structure that contains a set of nodes and edges between them.

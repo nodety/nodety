@@ -1,7 +1,6 @@
 # Todos
 
-- Add TypeExpr::Ref. Then move TypeExpr::TypeParameter and TypeExpr::ScopePortal into that so that the type system can represent
-  non generic types, generic types, scoped generic types, etc.
+- Evaluate if keyof T and T[K] can be represented as operators
 - Mapped types
 - Build the official website with showcase
 - Add more tests for keyof

@@ -1,6 +1,24 @@
-use crate::{Type, TypeExpr, scope::ScopePointer, type_expr::ScopePortal};
+use crate::{
+    Type, TypeExpr,
+    scope::ScopePointer,
+    type_expr::{ScopedTypeRef, TypeRef},
+};
 
-impl<T: Type> TypeExpr<T, ScopePortal<T>> {
+impl<T: Type, R: TypeRef> TypeExpr<T, R> {
+    /// Traverses this expression for all "top level" unions.
+    /// All non union expressions are considered leafs that are given to walker but not walked any further.
+    pub fn traverse_union_non_context_sensitive<'a>(&'a self, walker: &mut impl FnMut(&'a Self)) {
+        match self {
+            Self::Union(a, b) => {
+                a.traverse_union_non_context_sensitive(walker);
+                b.traverse_union_non_context_sensitive(walker);
+            }
+            _ => walker(self),
+        }
+    }
+}
+
+impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
     /// Calls walker for all types that are a "top level" union in self. Check out TypeExpr::traverse_mut for more infos
     /// Always visits
     pub fn traverse_union_mut(
@@ -19,18 +37,6 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
         );
     }
 
-    /// Traverses this expression for all "top level" unions.
-    /// All non union expressions are considered leafs that are given to walker but not walked any further.
-    pub fn traverse_union_non_context_sensitive<'a>(&'a self, walker: &mut impl FnMut(&'a Self)) {
-        match self {
-            Self::Union(a, b) => {
-                a.traverse_union_non_context_sensitive(walker);
-                b.traverse_union_non_context_sensitive(walker);
-            }
-            _ => walker(self),
-        }
-    }
-
     /// Calls walker for all types that are a "top level" union in self. Check out (TypeExpr::traverse_mut)[Self::traverse_mut] for more details.
     /// Always visits at least one type expr.
     pub fn traverse_union(&self, scope: &ScopePointer<T>, walker: &mut impl FnMut(&Self, &ScopePointer<T>)) {
@@ -40,8 +46,8 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                 if !is_top_level_union {
                     return;
                 }
-                if let TypeExpr::TypeParameter(param, _infer) = type_expr
-                    && scope.is_inferred(param)
+                if let Some(param) = type_expr.as_param()
+                    && scope.is_inferred(&param.param_id)
                 {
                     // If the param is inferred, self.traverse will look it up and call this walker again.
                     return;
@@ -102,7 +108,10 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
 
             Self::Type(_) => (),
 
-            Self::TypeParameter(_, _) => (), // Type variables are immutable!
+            // Type variables are immutable!
+            Self::Ref(ScopedTypeRef::Param(_)) => (),
+
+            Self::Ref(ScopedTypeRef::ScopedExpr { expr, scope: portal }) => expr.traverse_mut(portal, walker, false),
 
             Self::Constructor { parameters, .. } => {
                 parameters.values_mut().for_each(|p| p.traverse_mut(&scope, walker, false))
@@ -126,10 +135,6 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                 conditional.t_test_bound.traverse_mut(&scope, walker, false);
                 conditional.t_then.traverse_mut(&scope, walker, false);
                 conditional.t_else.traverse_mut(&scope, walker, false);
-            }
-
-            Self::ScopePortal { expr, scope: ScopePortal { portal } } => {
-                expr.traverse_mut(portal, walker, false);
             }
 
             Self::Any => (),
@@ -173,12 +178,14 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
 
             Self::Type(_) => (),
 
-            Self::TypeParameter(param, _infer) => {
-                let Some((inferred, inferred_scope)) = scope.lookup_inferred(param) else {
+            Self::Ref(ScopedTypeRef::Param(param)) => {
+                let Some((inferred, inferred_scope)) = scope.lookup_inferred(&param.param_id) else {
                     return;
                 };
                 inferred.traverse(&inferred_scope, walker, is_top_level_union);
             }
+
+            Self::Ref(ScopedTypeRef::ScopedExpr { expr, scope: portal }) => expr.traverse(portal, walker, false),
 
             Self::Constructor { parameters, .. } => parameters.values().for_each(|p| p.traverse(&scope, walker, false)),
 
@@ -200,10 +207,6 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                 conditional.t_test_bound.traverse(&scope, walker, false);
                 conditional.t_then.traverse(&scope, walker, false);
                 conditional.t_else.traverse(&scope, walker, false);
-            }
-
-            Self::ScopePortal { expr, scope: ScopePortal { portal } } => {
-                expr.traverse(portal, walker, false);
             }
 
             Self::Any => (),
@@ -248,9 +251,12 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
             }
 
             (Self::Operation { a, b, operator }, other) => {
-                let a_normalized = a.normalize(&own_scope);
-                let b_normalized = b.normalize(&own_scope);
-                T::operation(&a_normalized, operator, &b_normalized).traverse_parallel(
+                let (Some(a_normalized), Some(b_normalized)) =
+                    (a.normalize_concrete(&own_scope), b.normalize_concrete(&own_scope))
+                else {
+                    return;
+                };
+                TypeExpr::from(T::operation(&a_normalized, operator, &b_normalized)).traverse_parallel(
                     other,
                     &own_scope,
                     &other_scope,
@@ -259,10 +265,13 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                 );
             }
             (own, Self::Operation { a, b, operator }) => {
-                let a_normalized = a.normalize(&other_scope);
-                let b_normalized = b.normalize(&other_scope);
+                let (Some(a_normalized), Some(b_normalized)) =
+                    (a.normalize_concrete(&other_scope), b.normalize_concrete(&other_scope))
+                else {
+                    return;
+                };
                 own.traverse_parallel(
-                    &T::operation(&a_normalized, operator, &b_normalized),
+                    &T::operation(&a_normalized, operator, &b_normalized).into(),
                     &other_scope,
                     &own_scope,
                     infer_other,
@@ -270,18 +279,29 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                 );
             }
 
-            (Self::TypeParameter(own_param, _infer), other) => {
-                let Some((own_inferred, own_inferred_scope)) = own_scope.lookup_inferred(own_param) else {
-                    return;
-                };
-                own_inferred.traverse_parallel(other, &own_inferred_scope, &other_scope, infer_other, walker);
-            }
-            (own, Self::TypeParameter(other_param, _infer)) => {
-                let Some((other_inferred, other_inferred_scope)) = other_scope.lookup_inferred(other_param) else {
-                    return;
-                };
-                own.traverse_parallel(&other_inferred, &own_scope, &other_inferred_scope, infer_other, walker);
-            }
+            (Self::Ref(own_ref), other) => match own_ref {
+                ScopedTypeRef::Param(param) => {
+                    let Some((own_inferred, own_inferred_scope)) = own_scope.lookup_inferred(&param.param_id) else {
+                        return;
+                    };
+                    own_inferred.traverse_parallel(other, &own_inferred_scope, &other_scope, infer_other, walker);
+                }
+                ScopedTypeRef::ScopedExpr { expr, scope } => {
+                    expr.traverse_parallel(other, scope, &other_scope, infer_other, walker)
+                }
+            },
+            (own, Self::Ref(other_ref)) => match other_ref {
+                ScopedTypeRef::Param(param) => {
+                    let Some((other_inferred, other_inferred_scope)) = other_scope.lookup_inferred(&param.param_id)
+                    else {
+                        return;
+                    };
+                    own.traverse_parallel(&other_inferred, &own_scope, &other_inferred_scope, infer_other, walker);
+                }
+                ScopedTypeRef::ScopedExpr { expr, scope } => {
+                    own.traverse_parallel(expr, &own_scope, scope, infer_other, walker)
+                }
+            },
 
             (Self::KeyOf(own_expr), other) => {
                 let Some((keyof, keyof_scope)) = own_expr.keyof(&own_scope) else {
@@ -399,13 +419,6 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                     return;
                 };
                 own.traverse_parallel(&distributed, &own_scope, &other_scope, infer_other, walker)
-            }
-
-            (Self::ScopePortal { expr, scope }, other) => {
-                expr.traverse_parallel(other, &scope.portal, &other_scope, infer_other, walker)
-            }
-            (own, Self::ScopePortal { expr, scope }) => {
-                own.traverse_parallel(expr, &own_scope, &scope.portal, infer_other, walker)
             }
 
             (Self::Any | Self::Never, _) => (),

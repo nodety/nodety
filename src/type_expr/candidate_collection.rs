@@ -1,11 +1,11 @@
 use crate::{
     scope::{GlobalParameterId, ScopePointer},
     r#type::Type,
-    type_expr::{ScopePortal, TypeExpr, node_signature::candidate::Candidate},
+    type_expr::{ScopedTypeExpr, node_signature::candidate::Candidate},
 };
 use std::collections::HashMap;
 
-impl<T: Type> TypeExpr<T, ScopePortal<T>> {
+impl<T: Type> ScopedTypeExpr<T> {
     /// # Parameters
     /// - `ignore_excluded`: if false, type params with infer = false won't produce candidates, Otherwise all will emit candidates.
     pub fn collect_candidates(
@@ -28,20 +28,20 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
                   own_traversal_scope: &ScopePointer<T>,
                   source_traversal_scope: &ScopePointer<T>| {
                 // if the own_type has infer == false, no candidates get emitted from here.
-                let TypeExpr::TypeParameter(own_param, infer) = own_type else {
+                let Some(own_param) = own_type.as_param() else {
                     return;
                 };
-                if !infer && !ignore_excluded {
+                if !own_param.infer && !ignore_excluded {
                     return;
                 }
-                let Some(param_scope) = own_traversal_scope.lookup_scope(own_param) else {
+                let Some(param_scope) = own_traversal_scope.lookup_scope(&own_param.param_id) else {
                     return;
                 };
-                if param_scope.is_inferred(own_param) {
+                if param_scope.is_inferred(&own_param.param_id) {
                     // Don't collect candidates for already inferred parameters.
                     return;
                 }
-                let global_id = GlobalParameterId { scope: param_scope, local_id: *own_param };
+                let global_id = GlobalParameterId { scope: param_scope, local_id: own_param.param_id };
                 if own_scope.lookup_global(&global_id).is_none() {
                     // The var either
                     // - references a non existing type param

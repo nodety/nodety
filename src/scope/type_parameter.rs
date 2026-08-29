@@ -1,6 +1,6 @@
 use super::ScopePointer;
 use crate::r#type::Type;
-use crate::type_expr::{AsScopePortal, ScopePortal, TypeExpr, TypeExprScope, Unscoped};
+use crate::type_expr::{AsScopedRef, ParamRef, ScopedTypeRef, TypeExpr, TypeRef};
 
 #[cfg(feature = "json-schema")]
 use schemars::JsonSchema;
@@ -16,25 +16,25 @@ use tsify::Tsify;
     serde(
         rename_all = "camelCase",
         bound(
-            serialize = "T: Serialize, T::Operator: Serialize, S: Serialize",
-            deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>, S: Deserialize<'de>"
+            serialize = "T: Serialize, T::Operator: Serialize, R: Serialize",
+            deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>, R: Deserialize<'de>"
         )
     )
 )]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
-#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, S: JsonSchema"))]
+#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, R: JsonSchema"))]
 /// A generic type parameter with optional bound and default.
 #[cfg_attr(feature = "tsify", derive(Tsify))]
-pub struct TypeParameter<T: Type, S: TypeExprScope = Unscoped> {
+pub struct TypeParameter<T: Type, R: TypeRef = ParamRef> {
     /// Upper bound (e.g. `T extends Comparable`).
-    pub bound: Option<TypeExpr<T, S>>,
+    pub bound: Option<TypeExpr<T, R>>,
     /// Default when not inferred (e.g. `T = Any`).
-    pub default: Option<TypeExpr<T, S>>,
+    pub default: Option<TypeExpr<T, R>>,
 }
 
-impl<T: Type, S: AsScopePortal<T>> TypeParameter<T, S> {
+impl<T: Type, R: AsScopedRef<T>> TypeParameter<T, R> {
     /// Normalizes type parameters in bound and default. Returns `None` if normalization fails (e.g. uninferred vars when `any_on_uninferred` is false).
-    pub fn normalize(&self, scope: &ScopePointer<T>) -> TypeParameter<T, ScopePortal<T>> {
+    pub fn normalize(&self, scope: &ScopePointer<T>) -> TypeParameter<T, ScopedTypeRef<T>> {
         TypeParameter {
             bound: self.bound.clone().map(|bound| bound.normalize(scope)),
             default: self.default.clone().map(|default| default.normalize(scope)),
@@ -42,7 +42,7 @@ impl<T: Type, S: AsScopePortal<T>> TypeParameter<T, S> {
     }
 }
 
-impl<T: Type, S: TypeExprScope> Default for TypeParameter<T, S> {
+impl<T: Type, R: TypeRef> Default for TypeParameter<T, R> {
     fn default() -> Self {
         Self { bound: None, default: None }
     }

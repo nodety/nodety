@@ -1,10 +1,10 @@
 use crate::{
     Type, TypeExpr,
     scope::ScopePointer,
-    type_expr::{AsScopePortal, ScopePortal, ScopedTypeExpr},
+    type_expr::{AsScopedRef, ScopedRefView, ScopedTypeExpr},
 };
 
-impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
+impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
     /// Returns the keys of the constructor fields if this is a constructor or is inferred to be a constructor. None otherwise.
     /// The returned expression is guaranteed not to contain any context sensitive types.
     /// # Returns
@@ -14,15 +14,11 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
     pub fn keyof(&self, scope: &ScopePointer<T>) -> Option<(ScopedTypeExpr<T>, ScopePointer<T>)> {
         // Normalize here so Index, keyof and TypeParameter don't need to get handled by this function.
         match self {
-            Self::Type(inst) => Some((inst.key_type(None), ScopePointer::clone(scope))),
+            Self::Type(inst) => Some((inst.key_type::<R>(None).into(), ScopePointer::clone(scope))),
 
             Self::Constructor { inner, parameters } => {
                 // Parameters should have been normalized by caller
-                let scoped_parameters: std::collections::BTreeMap<String, ScopedTypeExpr<T>> = parameters
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone())))
-                    .collect();
-                Some((inner.key_type(Some(&scoped_parameters)), ScopePointer::clone(scope)))
+                Some((inner.key_type(Some(parameters)).into(), ScopePointer::clone(scope)))
             }
 
             // See tsReference.ts
@@ -51,35 +47,32 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
                 let (keyof_b, keyof_b_scope) = b.keyof(scope)?;
                 Some((
                     TypeExpr::Union(
-                        Box::new(TypeExpr::ScopePortal {
-                            expr: Box::new(keyof_a),
-                            scope: ScopePortal { portal: keyof_a_scope },
-                        }),
-                        Box::new(TypeExpr::ScopePortal {
-                            expr: Box::new(keyof_b),
-                            scope: ScopePortal { portal: keyof_b_scope },
-                        }),
+                        Box::new(TypeExpr::scope_portal(keyof_a, keyof_a_scope)),
+                        Box::new(TypeExpr::scope_portal(keyof_b, keyof_b_scope)),
                     ),
                     ScopePointer::clone(scope),
                 ))
             }
 
             Self::Operation { a, b, operator } => {
-                let a_normalized = a.normalize(scope);
-                let b_normalized = b.normalize(scope);
+                let a_normalized = a.normalize_concrete(scope)?;
+                let b_normalized = b.normalize_concrete(scope)?;
                 T::operation(&a_normalized, operator, &b_normalized).keyof(scope)
             }
 
-            Self::TypeParameter(param, _infer) => {
+            Self::Ref(r) => match r.view() {
                 // Was:
                 // if let Some((bound, scope)) = scope.lookup_bound(param) {
                 // But in the case:      <T>                 <C>
                 //                       |   keyof T | ----- | C  |
                 //
                 // C will get inferred using the keyof(bound of T) Even when T is not yet inferred.
-                if let Some((inferred, scope)) = scope.lookup_inferred(param) { inferred.keyof(&scope) } else { None }
-            }
-            Self::ScopePortal { expr, scope } => expr.keyof(&scope.as_scope_portal().portal),
+                ScopedRefView::Param(param) => {
+                    let (inferred, scope) = scope.lookup_inferred(&param.param_id)?;
+                    inferred.keyof(&scope)
+                }
+                ScopedRefView::ScopedExpr { expr, scope: portal } => expr.keyof(portal),
+            },
 
             Self::KeyOf(expr) => expr.keyof(scope),
 
@@ -88,12 +81,10 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
                 index_type.keyof(&index_scope)
             }
 
-            Self::Any => Some((T::keyof_any(), ScopePointer::clone(scope))),
+            Self::Any => Some((T::keyof_any().into(), ScopePointer::clone(scope))),
             Self::NodeSignature(node_signature) => {
                 // Customized behavior (defaults to never)
-                let scoped_signature =
-                    node_signature.as_ref().clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone());
-                Some((T::keyof_node_signature(&scoped_signature), ScopePointer::clone(scope)))
+                Some((T::keyof_node_signature(node_signature).into(), ScopePointer::clone(scope)))
             }
             Self::PortTypes(_) => Some((TypeExpr::Never, ScopePointer::clone(scope))),
             // @todo

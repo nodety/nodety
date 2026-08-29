@@ -6,7 +6,7 @@
 use crate::{
     scope::ScopePointer,
     r#type::Type,
-    type_expr::{ScopePortal, TypeExprValidationError, Unscoped, node_signature::NodeSignature},
+    type_expr::{ParamRef, ScopedTypeRef, TypeExprValidationError, node_signature::NodeSignature},
 };
 use petgraph::prelude::StableDiGraph;
 use petgraph::{
@@ -51,33 +51,33 @@ pub struct Edge {
 /// has the added benefit that `T` will stay inferred across `impl IntoNode<T>`.
 /// With into, the T gets lost.
 pub trait IntoNode<T: Type>: private::Sealed {
-    fn into_node(self) -> Node<T, Unscoped>;
+    fn into_node(self) -> Node<T, ParamRef>;
 }
 
-impl<T: Type> private::Sealed for Node<T, Unscoped> {}
+impl<T: Type> private::Sealed for Node<T, ParamRef> {}
 
-impl<T: Type> private::Sealed for NodeSignature<T, Unscoped> {}
+impl<T: Type> private::Sealed for NodeSignature<T, ParamRef> {}
 
-impl<T: Type> IntoNode<T> for NodeSignature<T, Unscoped> {
-    fn into_node(self) -> Node<T, Unscoped> {
+impl<T: Type> IntoNode<T> for NodeSignature<T, ParamRef> {
+    fn into_node(self) -> Node<T, ParamRef> {
         Node { signature: self, parent: None, type_hints: TypeHints::default() }
     }
 }
 
-impl<T: Type> IntoNode<T> for Node<T, Unscoped> {
-    fn into_node(self) -> Node<T, Unscoped> {
+impl<T: Type> IntoNode<T> for Node<T, ParamRef> {
+    fn into_node(self) -> Node<T, ParamRef> {
         Node { signature: self.signature, parent: self.parent, type_hints: self.type_hints }
     }
 }
 
-impl<T: Type> Default for Node<T, Unscoped> {
+impl<T: Type> Default for Node<T, ParamRef> {
     fn default() -> Self {
         Node { signature: NodeSignature::default(), parent: None, type_hints: TypeHints::default() }
     }
 }
 
-impl<T: Type> From<NodeSignature<T, Unscoped>> for Node<T, ScopePortal<T>> {
-    fn from(sig: NodeSignature<T, Unscoped>) -> Self {
+impl<T: Type> From<NodeSignature<T, ParamRef>> for Node<T, ScopedTypeRef<T>> {
+    fn from(sig: NodeSignature<T, ParamRef>) -> Self {
         Node { signature: sig.into(), parent: None, type_hints: TypeHints::default() }
     }
 }
@@ -106,7 +106,7 @@ impl Error for NodetyError {}
 type ChildrenMap = BTreeMap<NodeIndex, Vec<NodeIndex>>;
 
 pub struct Nodety<T: Type> {
-    program: StableDiGraph<Node<T, Unscoped>, Edge>,
+    program: StableDiGraph<Node<T, ParamRef>, Edge>,
     children: ChildrenMap,
 }
 
@@ -129,7 +129,7 @@ impl<T: Type> Nodety<T> {
 
     /// Adds a node to the graph.
     ///
-    /// **Hint:** `Into<Node<T, ScopePortal<T>>>` is implemented for `NodeSignature<T, Unscoped>` and `Node<T, Unscoped>`.
+    /// **Hint:** `Into<Node<T, ScopedTypeRef<T>>>` is implemented for `NodeSignature<T, ParamRef>` and `Node<T, ParamRef>`.
     ///
     /// # Errors
     /// - if the parent was updated to a non existing node
@@ -158,7 +158,7 @@ impl<T: Type> Nodety<T> {
     /// let map_node_idx = nodety.add_node(Node{signature: map_node, parent: Some(map_node_idx), ..Default::default()}).unwrap();
     /// ```
     pub fn add_node(&mut self, node: impl IntoNode<T>) -> Result<NodeIndex, NodetyError> {
-        let node: Node<T, Unscoped> = node.into_node();
+        let node: Node<T, ParamRef> = node.into_node();
         let node_scope = if let Some(parent) = node.parent {
             if !self.program.contains_node(parent) {
                 return Err(NodetyError::ParentNotFound);
@@ -187,7 +187,7 @@ impl<T: Type> Nodety<T> {
     /// - if the new parent would create a cycle
     /// - if the node signature is invalid (See [NodeSignature::validate](crate::NodeSignature::validate))
     pub fn update_node(&mut self, node_id: NodeIndex, node: impl IntoNode<T>) -> Result<(), NodetyError> {
-        let node: Node<T, Unscoped> = node.into_node();
+        let node: Node<T, ParamRef> = node.into_node();
 
         if !self.program.contains_node(node_id) {
             return Err(NodetyError::NodeNotFound);
@@ -251,12 +251,12 @@ impl<T: Type> Nodety<T> {
         self.program.remove_edge(edge_idx)
     }
 
-    pub fn get_node(&self, node_idx: NodeIndex) -> Option<&Node<T, Unscoped>> {
+    pub fn get_node(&self, node_idx: NodeIndex) -> Option<&Node<T, ParamRef>> {
         self.program.node_weight(node_idx)
     }
 
     /// Returns the underlying graph.
-    pub fn program(&self) -> &StableDiGraph<Node<T, Unscoped>, Edge> {
+    pub fn program(&self) -> &StableDiGraph<Node<T, ParamRef>, Edge> {
         &self.program
     }
 
