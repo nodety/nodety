@@ -144,10 +144,19 @@ pub fn parse_type_expr_union<T: ParsableType, S: TypeExprScope>(input: &str) -> 
     Ok((input, result))
 }
 
+/// Index accesses chain, so `a["x"]["y"]` nests left to right.
 fn parse_type_expr_index<T: ParsableType, S: TypeExprScope>(input: &str) -> IResult<&str, TypeExpr<T, S>> {
-    (parse_atomic_type_expr, char('['), parse_type_expr, char(']'))
-        .map(|(expr, _, index, _)| TypeExpr::Index { expr: Box::new(expr), index: Box::new(index) })
-        .parse(input)
+    let (input, first) = parse_atomic_type_expr(input)?;
+    let (input, indices) = many0(delimited(char('['), parse_type_expr, char(']'))).parse(input)?;
+
+    if indices.is_empty() {
+        return Err(nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Tag)));
+    }
+
+    let result =
+        indices.into_iter().fold(first, |expr, index| TypeExpr::Index { expr: Box::new(expr), index: Box::new(index) });
+
+    Ok((input, result))
 }
 
 fn parse_type_expr_in_brackets<T: ParsableType, S: TypeExprScope>(input: &str) -> IResult<&str, TypeExpr<T, S>> {

@@ -193,6 +193,25 @@ fn test_index() {
 }
 
 #[test]
+fn test_index_chained() {
+    let parsed = TypeExpr::<DemoType, Unscoped>::try_parse("Integer['a']['b']").unwrap();
+
+    // Nests left to right: `(Integer['a'])['b']`.
+    let expected = TypeExpr::Index {
+        expr: Box::new(TypeExpr::Index {
+            expr: Box::new(DemoType::Integer.into()),
+            index: Box::new(TypeExpr::Type(DemoType::String(Some("a".into())))),
+        }),
+        index: Box::new(TypeExpr::Type(DemoType::String(Some("b".into())))),
+    };
+
+    assert_eq!(expected, parsed);
+
+    // The formatter parenthesises the inner access, which reparses to the same tree.
+    assert_eq!(parsed, TypeExpr::<DemoType, Unscoped>::try_parse(&format!("{parsed}")).unwrap());
+}
+
+#[test]
 fn test_intersection() {
     let expr = parse_type_expr::<DemoType, Unscoped>("Integer & String").unwrap().1;
     assert_eq!(
