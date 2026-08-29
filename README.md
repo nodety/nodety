@@ -4,10 +4,9 @@
 
 # Nodety
 
-Generics, type inference, and validation for visual node editors.
+Lightweight library for type inference & checking inspired by typescript. Generic over a user defined types.
 
-Nodety gives your node graph a type system comparable to TypeScript.
-Define node signatures like `<T, U>(Array<T>, (T) -> (U)) -> (Array<U>)`, wire them up, and let nodety infer `T = Integer`, `U = String` automatically.
+Nodety was initially designed for visual node editors but it works just as well for type checking a programming language.
 
 ## Features
 
@@ -17,9 +16,9 @@ Define node signatures like `<T, U>(Array<T>, (T) -> (U)) -> (Array<U>)`, wire t
 - **Keyof & index access** — `keyof { a: Int }`, `{ a: Int }["a"]`
 - **Variadic ports (inputs & outputs)** — `(...Integer) -> (Array<Integer>)`
 - **Rank-N polymorphism** — `(<T>(T) -> (T)) -> ()`
-- **User-defined type operations** — `<A, B>(A, B) -> (A * B)` (e.g. SI units)
+- **User-defined type operations** — `<A, B>(A, B) -> (A * B)` (Can be used to model calculations with SI units)
 - **Propagating tags** — enforce constraints like const-correctness across the graph
-- **Detailed diagnostics** — validation errors pinpoint the exact edge/port with subtyping traces
+- **Detailed diagnostics** — validation errors that pinpoint the exact edge/port with subtyping traces
 
 ## Quick start
 
