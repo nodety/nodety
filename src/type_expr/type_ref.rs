@@ -152,7 +152,7 @@ impl<T: Type> ErasedScopedTypeRef<T> {
         match r.view() {
             ScopedRefView::Param(param) => Self::Param(*param),
             ScopedRefView::ScopedExpr { expr, .. } => {
-                Self::ScopedExpr { expr: Box::new(expr.clone().map_refs(&mut Self::from_as_scoped)) }
+                Self::ScopedExpr { expr: Box::new(expr.clone().map_refs(ErasedScopedTypeRef::from_as_scoped)) }
             }
         }
     }

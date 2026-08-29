@@ -40,21 +40,31 @@ pub struct Conditional<T: Type, R: TypeRef> {
 }
 
 impl<T: Type, R: TypeRef> Conditional<T, R> {
-    pub fn map_refs<RO: TypeRef>(self, mapper: &mut impl FnMut(R) -> RO) -> Conditional<T, RO> {
-        Conditional {
-            t_test: self.t_test.map_refs(mapper),
-            t_test_bound: self.t_test_bound.map_refs(mapper),
-            t_then: self.t_then.map_refs(mapper),
-            t_else: self.t_else.map_refs(mapper),
+    pub fn try_map_refs<RO: TypeRef, E, F>(self, mut mapper: F) -> Result<Conditional<T, RO>, E>
+    where
+        F: FnMut(R) -> Result<RO, E>,
+    {
+        Ok(Conditional {
+            t_test: self.t_test.try_map_refs_mut(&mut mapper)?,
+            t_test_bound: self.t_test_bound.try_map_refs_mut(&mut mapper)?,
+            t_then: self.t_then.try_map_refs_mut(&mut mapper)?,
+            t_else: self.t_else.try_map_refs_mut(&mut mapper)?,
             infer: self.infer,
-        }
+        })
+    }
+
+    pub fn map_refs<RO: TypeRef, F>(self, mut mapper: F) -> Conditional<T, RO>
+    where
+        F: FnMut(R) -> RO,
+    {
+        self.try_map_refs::<RO, std::convert::Infallible, _>(move |r| Ok(mapper(r))).expect("infallible")
     }
 }
 
 impl<T: Type, R: AsScopedRef<T>> Conditional<T, R> {
     /// Widens `self` into the scope aware representation used internally.
     pub fn into_scoped(self) -> Conditional<T, ScopedTypeRef<T>> {
-        self.map_refs(&mut |r: R| r.into_scoped_ref())
+        self.map_refs(|r: R| r.into_scoped_ref())
     }
 }
 

@@ -22,14 +22,18 @@ macro_rules! ref_mappers {
         impl<T: Type, R: AsScopedRef<T>> $t<T, R> {
             /// Widens `self` into the scope aware representation used internally.
             pub fn into_scoped(self) -> $t<T, ScopedTypeRef<T>> {
-                self.map_refs(&mut |r: R| r.into_scoped_ref())
+                self.map_refs(|r: R| r.into_scoped_ref())
             }
         }
 
         impl<T: Type, R: TypeRef> $t<T, R> {
             /// Infallible version of [Self::try_map_refs].
-            pub fn map_refs<RO: TypeRef>(self, mapper: &mut impl FnMut(R) -> RO) -> $t<T, RO> {
-                self.try_map_refs::<RO, std::convert::Infallible>(&mut |r| Ok(mapper(r))).unwrap_or_else(|e| match e {})
+            pub fn map_refs<RO: TypeRef, F>(self, mut mapper: F) -> $t<T, RO>
+            where
+                F: FnMut(R) -> RO,
+            {
+                self.try_map_refs::<RO, std::convert::Infallible, _>(move |r| Ok(mapper(r)))
+                    .unwrap_or_else(|e| match e {})
             }
 
             /// Attempts to convert `self` into an expression that only references type parameters.
@@ -39,7 +43,7 @@ macro_rules! ref_mappers {
             /// # Errors
             /// if the expression contains one or more scope portals.
             pub fn try_into_unscoped(self) -> Result<$t<T, ParamRef>, HasScopePortals> {
-                self.try_map_refs(&mut |r: R| r.as_param_ref().copied().ok_or(HasScopePortals))
+                self.try_map_refs(|r: R| r.as_param_ref().copied().ok_or(HasScopePortals))
             }
 
             /// Attempts to convert `self` into an expression that references nothing at all.
@@ -49,7 +53,7 @@ macro_rules! ref_mappers {
             /// # Errors
             /// if the expression contains any reference.
             pub fn try_into_concrete(self) -> Result<$t<T, NoRef>, HasTypeParameters> {
-                self.try_map_refs(&mut |_: R| Err(HasTypeParameters))
+                self.try_map_refs(|_: R| Err(HasTypeParameters))
             }
         }
     };
@@ -66,19 +70,19 @@ macro_rules! widening {
     ($t:ident) => {
         impl<T: Type> From<$t<T, NoRef>> for $t<T, ParamRef> {
             fn from(value: $t<T, NoRef>) -> Self {
-                value.map_refs(&mut |never| match never {})
+                value.map_refs(|never| match never {})
             }
         }
 
         impl<T: Type> From<$t<T, NoRef>> for $t<T, ScopedTypeRef<T>> {
             fn from(value: $t<T, NoRef>) -> Self {
-                value.map_refs(&mut |never| match never {})
+                value.map_refs(|never| match never {})
             }
         }
 
         impl<T: Type> From<$t<T, ParamRef>> for $t<T, ScopedTypeRef<T>> {
             fn from(value: $t<T, ParamRef>) -> Self {
-                value.map_refs(&mut ScopedTypeRef::Param)
+                value.map_refs(ScopedTypeRef::Param)
             }
         }
     };
@@ -96,40 +100,50 @@ impl<T: Type, R: TypeRef> TypeExpr<T, R> {
     /// **Note:** for [ScopedTypeRef::ScopedExpr] the mapper receives the *whole* reference,
     /// nested expression included. Mapping into a different reference kind therefore has to
     /// recurse into that expression itself.
-    pub fn try_map_refs<RO: TypeRef, E>(
-        self,
-        mapper: &mut impl FnMut(R) -> Result<RO, E>,
-    ) -> Result<TypeExpr<T, RO>, E> {
+    pub fn try_map_refs<RO: TypeRef, E, F>(self, mut mapper: F) -> Result<TypeExpr<T, RO>, E>
+    where
+        F: FnMut(R) -> Result<RO, E>,
+    {
+        self.try_map_refs_mut(&mut mapper)
+    }
+
+    pub(crate) fn try_map_refs_mut<RO: TypeRef, E, F>(self, mapper: &mut F) -> Result<TypeExpr<T, RO>, E>
+    where
+        F: FnMut(R) -> Result<RO, E>,
+    {
         Ok(match self {
             Self::Type(t) => TypeExpr::Type(t),
             Self::Constructor { inner, parameters } => TypeExpr::Constructor {
                 inner,
                 parameters: parameters
                     .into_iter()
-                    .map(|(k, v)| Ok((k, v.try_map_refs(mapper)?)))
+                    .map(|(k, v)| Ok((k, v.try_map_refs_mut(mapper)?)))
                     .collect::<Result<_, E>>()?,
             },
             Self::Operation { a, operator, b } => TypeExpr::Operation {
-                a: Box::new(a.try_map_refs(mapper)?),
+                a: Box::new(a.try_map_refs_mut(mapper)?),
                 operator,
-                b: Box::new(b.try_map_refs(mapper)?),
+                b: Box::new(b.try_map_refs_mut(mapper)?),
             },
-            Self::NodeSignature(sig) => TypeExpr::NodeSignature(Box::new(sig.try_map_refs(mapper)?)),
-            Self::PortTypes(pt) => TypeExpr::PortTypes(Box::new(pt.try_map_refs(mapper)?)),
-            Self::Union(a, b) => TypeExpr::Union(Box::new(a.try_map_refs(mapper)?), Box::new(b.try_map_refs(mapper)?)),
-            Self::KeyOf(expr) => TypeExpr::KeyOf(Box::new(expr.try_map_refs(mapper)?)),
-            Self::Index { expr, index } => TypeExpr::Index {
-                expr: Box::new(expr.try_map_refs(mapper)?),
-                index: Box::new(index.try_map_refs(mapper)?),
-            },
-            Self::Intersection(a, b) => {
-                TypeExpr::Intersection(Box::new(a.try_map_refs(mapper)?), Box::new(b.try_map_refs(mapper)?))
+            Self::NodeSignature(sig) => TypeExpr::NodeSignature(Box::new(sig.try_map_refs_mut(mapper)?)),
+            Self::PortTypes(pt) => TypeExpr::PortTypes(Box::new(pt.try_map_refs_mut(mapper)?)),
+            Self::Union(a, b) => {
+                TypeExpr::Union(Box::new(a.try_map_refs_mut(mapper)?), Box::new(b.try_map_refs_mut(mapper)?))
             }
+            Self::KeyOf(expr) => TypeExpr::KeyOf(Box::new(expr.try_map_refs_mut(mapper)?)),
+            Self::Index { expr, index } => TypeExpr::Index {
+                expr: Box::new(expr.try_map_refs_mut(mapper)?),
+                index: Box::new(index.try_map_refs_mut(mapper)?),
+            },
+            Self::Intersection(a, b) => TypeExpr::Intersection(
+                Box::new(a.try_map_refs_mut(mapper)?),
+                Box::new(b.try_map_refs_mut(mapper)?),
+            ),
             Self::Conditional(conditional) => TypeExpr::Conditional(Box::new(Conditional {
-                t_test: conditional.t_test.try_map_refs(mapper)?,
-                t_test_bound: conditional.t_test_bound.try_map_refs(mapper)?,
-                t_then: conditional.t_then.try_map_refs(mapper)?,
-                t_else: conditional.t_else.try_map_refs(mapper)?,
+                t_test: conditional.t_test.try_map_refs_mut(mapper)?,
+                t_test_bound: conditional.t_test_bound.try_map_refs_mut(mapper)?,
+                t_then: conditional.t_then.try_map_refs_mut(mapper)?,
+                t_else: conditional.t_else.try_map_refs_mut(mapper)?,
                 infer: conditional.infer,
             })),
             Self::Any => TypeExpr::Any,
@@ -190,7 +204,7 @@ impl<T: Type> ScopedTypeExpr<T> {
 impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
     /// Replaces every scope portal with an [ErasedScopedTypeRef::ScopedExpr] (scope data removed).
     pub fn into_erased_scope_refs(self) -> TypeExpr<T, ErasedScopedTypeRef<T>> {
-        self.map_refs(&mut ErasedScopedTypeRef::from_as_scoped)
+        self.map_refs(ErasedScopedTypeRef::from_as_scoped)
     }
 
     /// Normalizes `self` and, if nothing is left referencing the outside, returns the result as a
@@ -207,55 +221,83 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
 }
 
 impl<T: Type, R: TypeRef> PortTypes<T, R> {
-    pub fn try_map_refs<RO: TypeRef, E>(
-        self,
-        mapper: &mut impl FnMut(R) -> Result<RO, E>,
-    ) -> Result<PortTypes<T, RO>, E> {
+    pub fn try_map_refs<RO: TypeRef, E, F>(self, mut mapper: F) -> Result<PortTypes<T, RO>, E>
+    where
+        F: FnMut(R) -> Result<RO, E>,
+    {
+        self.try_map_refs_mut(&mut mapper)
+    }
+
+    fn try_map_refs_mut<RO: TypeRef, E, F>(self, mapper: &mut F) -> Result<PortTypes<T, RO>, E>
+    where
+        F: FnMut(R) -> Result<RO, E>,
+    {
         Ok(PortTypes {
-            ports: self.ports.into_iter().map(|p| p.try_map_refs(mapper)).collect::<Result<_, E>>()?,
-            varg: self.varg.map(|v| v.try_map_refs(mapper)).transpose()?,
+            ports: self.ports.into_iter().map(|p| p.try_map_refs_mut(mapper)).collect::<Result<_, E>>()?,
+            varg: self.varg.map(|v| v.try_map_refs_mut(mapper)).transpose()?,
         })
     }
 }
 
 impl<T: Type, R: TypeRef> TypeParameter<T, R> {
-    pub fn try_map_refs<RO: TypeRef, E>(
-        self,
-        mapper: &mut impl FnMut(R) -> Result<RO, E>,
-    ) -> Result<TypeParameter<T, RO>, E> {
+    pub fn try_map_refs<RO: TypeRef, E, F>(self, mut mapper: F) -> Result<TypeParameter<T, RO>, E>
+    where
+        F: FnMut(R) -> Result<RO, E>,
+    {
+        self.try_map_refs_mut(&mut mapper)
+    }
+
+    fn try_map_refs_mut<RO: TypeRef, E, F>(self, mapper: &mut F) -> Result<TypeParameter<T, RO>, E>
+    where
+        F: FnMut(R) -> Result<RO, E>,
+    {
         Ok(TypeParameter {
-            bound: self.bound.map(|bound| bound.try_map_refs(mapper)).transpose()?,
-            default: self.default.map(|default| default.try_map_refs(mapper)).transpose()?,
+            bound: self.bound.map(|bound| bound.try_map_refs_mut(mapper)).transpose()?,
+            default: self.default.map(|default| default.try_map_refs_mut(mapper)).transpose()?,
         })
     }
 }
 
 impl<T: Type, R: TypeRef> TypeParameters<T, R> {
-    pub fn try_map_refs<RO: TypeRef, E>(
-        self,
-        mapper: &mut impl FnMut(R) -> Result<RO, E>,
-    ) -> Result<TypeParameters<T, RO>, E> {
+    pub fn try_map_refs<RO: TypeRef, E, F>(self, mut mapper: F) -> Result<TypeParameters<T, RO>, E>
+    where
+        F: FnMut(R) -> Result<RO, E>,
+    {
+        self.try_map_refs_mut(&mut mapper)
+    }
+
+    fn try_map_refs_mut<RO: TypeRef, E, F>(self, mapper: &mut F) -> Result<TypeParameters<T, RO>, E>
+    where
+        F: FnMut(R) -> Result<RO, E>,
+    {
         self.0
             .into_iter()
-            .map(|(k, param)| Ok((k, param.try_map_refs(mapper)?)))
+            .map(|(k, param)| Ok((k, param.try_map_refs_mut(mapper)?)))
             .collect::<Result<_, E>>()
             .map(TypeParameters)
     }
 }
 
 impl<T: Type, R: TypeRef> NodeSignature<T, R> {
-    pub fn try_map_refs<RO: TypeRef, E>(
-        self,
-        mapper: &mut impl FnMut(R) -> Result<RO, E>,
-    ) -> Result<NodeSignature<T, RO>, E> {
+    pub fn try_map_refs<RO: TypeRef, E, F>(self, mut mapper: F) -> Result<NodeSignature<T, RO>, E>
+    where
+        F: FnMut(R) -> Result<RO, E>,
+    {
+        self.try_map_refs_mut(&mut mapper)
+    }
+
+    fn try_map_refs_mut<RO: TypeRef, E, F>(self, mapper: &mut F) -> Result<NodeSignature<T, RO>, E>
+    where
+        F: FnMut(R) -> Result<RO, E>,
+    {
         Ok(NodeSignature {
-            parameters: self.parameters.try_map_refs(mapper)?,
-            inputs: self.inputs.try_map_refs(mapper)?,
-            outputs: self.outputs.try_map_refs(mapper)?,
+            parameters: self.parameters.try_map_refs_mut(mapper)?,
+            inputs: self.inputs.try_map_refs_mut(mapper)?,
+            outputs: self.outputs.try_map_refs_mut(mapper)?,
             default_input_types: self
                 .default_input_types
                 .into_iter()
-                .map(|(k, v)| Ok((k, v.try_map_refs(mapper)?)))
+                .map(|(k, v)| Ok((k, v.try_map_refs_mut(mapper)?)))
                 .collect::<Result<_, E>>()?,
             tags: self.tags,
             required_tags: self.required_tags,
