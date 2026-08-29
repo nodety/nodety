@@ -2,8 +2,8 @@ use crate::{
     scope::{ScopePointer, type_parameter::TypeParameter},
     r#type::Type,
     type_expr::{
-        AsScopedRef, ConcreteTypeExpr, NoRef, ParamRef, ParameterizedTypeExpr, ScopedTypeExpr, ScopedTypeRef, TypeExpr,
-        TypeRef,
+        AsScopedRef, ConcreteTypeExpr, ErasedScopedTypeRef, NoRef, ParamRef, ParameterizedTypeExpr, ScopedTypeExpr,
+        ScopedTypeRef, TypeExpr, TypeRef,
         conditional::Conditional,
         node_signature::{NodeSignature, port_types::PortTypes, type_parameters::TypeParameters},
     },
@@ -188,6 +188,11 @@ impl<T: Type> ScopedTypeExpr<T> {
 }
 
 impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
+    /// Replaces every scope portal with an [ErasedScopedTypeRef::ScopedExpr] (scope data removed).
+    pub fn into_erased_scope_refs(self) -> TypeExpr<T, ErasedScopedTypeRef<T>> {
+        self.map_refs(&mut ErasedScopedTypeRef::from_as_scoped)
+    }
+
     /// Normalizes `self` and, if nothing is left referencing the outside, returns the result as a
     /// [ConcreteTypeExpr].
     ///

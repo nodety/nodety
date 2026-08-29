@@ -2,7 +2,7 @@ use crate::{
     scope::ScopePointer,
     r#type::Type,
     type_expr::{
-        AsScopedRef, NoRef, ParamRef, ParameterizedTypeExpr, ScopedRefView, ScopedTypeExpr, ScopedTypeRef, TypeExpr,
+        AsScopedRef, ErasedScopedTypeRef, NoRef, ParamRef, ScopedRefView, ScopedTypeExpr, ScopedTypeRef, TypeExpr,
     },
 };
 use std::fmt::Debug;
@@ -168,18 +168,21 @@ pub enum NoSupertypeLayerReason {
     serde(
         rename_all = "camelCase",
         bound(
-            serialize = "T: Serialize, T::Operator: Serialize",
-            deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>"
+            serialize = "T: Serialize, T::Operator: Serialize, ErasedScopedTypeRef<T>: Serialize",
+            deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>, ErasedScopedTypeRef<T>: Deserialize<'de>"
         )
     )
 )]
+#[cfg_attr(
+    feature = "json-schema",
+    schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, ErasedScopedTypeRef<T>: JsonSchema")
+)]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
-#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema"))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct NoSupertypeLayer<T: Type> {
-    pub parent: ParameterizedTypeExpr<T>,
-    pub child: ParameterizedTypeExpr<T>,
+    pub parent: TypeExpr<T, ErasedScopedTypeRef<T>>,
+    pub child: TypeExpr<T, ErasedScopedTypeRef<T>>,
     pub reason: Option<NoSupertypeLayerReason>,
 }
 
@@ -189,13 +192,16 @@ pub struct NoSupertypeLayer<T: Type> {
     serde(
         rename_all = "camelCase",
         bound(
-            serialize = "T: Serialize, T::Operator: Serialize",
-            deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>"
+            serialize = "T: Serialize, T::Operator: Serialize, ErasedScopedTypeRef<T>: Serialize",
+            deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>, ErasedScopedTypeRef<T>: Deserialize<'de>"
         )
     )
 )]
+#[cfg_attr(
+    feature = "json-schema",
+    schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, ErasedScopedTypeRef<T>: JsonSchema")
+)]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
-#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema"))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct DetailedSupertypeDiagnostics<T: Type> {
@@ -210,8 +216,8 @@ impl<T: Type> SupertypeDiagnostics<T> for DetailedSupertypeDiagnostics<T> {
     ) -> Self {
         Self {
             layers: vec![NoSupertypeLayer {
-                parent: parent.clone().into_scoped().force_remove_scope_portals(),
-                child: child.clone().into_scoped().force_remove_scope_portals(),
+                parent: parent.clone().into_erased_scope_refs(),
+                child: child.clone().into_erased_scope_refs(),
                 reason,
             }],
         }
@@ -228,8 +234,8 @@ impl<T: Type> SupertypeDiagnostics<T> for DetailedSupertypeDiagnostics<T> {
         reason: Option<NoSupertypeLayerReason>,
     ) -> Self {
         self.layers.push(NoSupertypeLayer {
-            parent: parent.clone().into_scoped().force_remove_scope_portals(),
-            child: child.clone().into_scoped().force_remove_scope_portals(),
+            parent: parent.clone().into_erased_scope_refs(),
+            child: child.clone().into_erased_scope_refs(),
             reason,
         });
         self

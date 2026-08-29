@@ -5,7 +5,7 @@
 //! prove at compile time that an expression is fully self contained, or allow it to reference
 //! type parameters, without every consumer having to defensively handle both cases.
 use crate::{
-    Type,
+    Type, TypeExpr,
     scope::{LocalParamID, ScopePointer},
     type_expr::ScopedTypeExpr,
 };
@@ -119,15 +119,61 @@ impl<T: Type> ScopedTypeRef<T> {
     }
 }
 
+/// A scope portal that used to be there but got removed in order to be serializable
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(
+        rename_all = "camelCase",
+        bound(
+            serialize = "T: Serialize, T::Operator: Serialize",
+            deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>"
+        )
+    )
+)]
+#[cfg_attr(
+    feature = "json-schema",
+    schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, ErasedScopedTypeRef<T>: JsonSchema")
+)]
+#[cfg_attr(feature = "json-schema", derive(JsonSchema))]
+#[cfg_attr(feature = "tsify", derive(Tsify))]
+pub enum ErasedScopedTypeRef<T: Type> {
+    Param(ParamRef),
+    ScopedExpr { expr: Box<TypeExpr<T, ErasedScopedTypeRef<T>>> },
+}
+
+impl<T: Type> ErasedScopedTypeRef<T> {
+    /// Strips [ScopePointer] data from scope portals while preserving nested expression structure.
+    ///
+    /// Used when serializing supertype diagnostics: scope portals become
+    /// [ErasedScopedTypeRef::ScopedExpr] nodes without a scope field.
+    pub fn from_as_scoped<R: AsScopedRef<T>>(r: R) -> Self {
+        match r.view() {
+            ScopedRefView::Param(param) => Self::Param(*param),
+            ScopedRefView::ScopedExpr { expr, .. } => {
+                Self::ScopedExpr { expr: Box::new(expr.clone().map_refs(&mut Self::from_as_scoped)) }
+            }
+        }
+    }
+}
+
 impl private::Sealed for NoRef {}
 impl private::Sealed for ParamRef {}
 impl<T: Type> private::Sealed for ScopedTypeRef<T> {}
+impl<T: Type> private::Sealed for ErasedScopedTypeRef<T> {}
 
 impl TypeRef for NoRef {
     fn as_param_ref(&self) -> Option<&ParamRef> {
         match *self {
             // Never
         }
+    }
+}
+
+impl<T: Type> TypeRef for ErasedScopedTypeRef<T> {
+    fn as_param_ref(&self) -> Option<&ParamRef> {
+        None
     }
 }
 
