@@ -144,7 +144,7 @@ impl FormattableType for DemoType {
             Self::Unit => Ok(write!(f, "Unit")?),
             Self::SI(unit, scale) => {
                 let values = [unit.s, unit.m, unit.kg, unit.a, unit.k, unit.mol, unit.cd];
-                let last_non_zero = values.iter().rposition(|&v| v != 0).map_or(0, |i| i);
+                let last_non_zero = values.iter().rposition(|&v| v != 0).unwrap_or(0);
                 write!(f, "SI({scale}")?;
                 for &v in &values[..=last_non_zero] {
                     write!(f, ", {v}")?;
