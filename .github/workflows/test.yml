@@ -114,27 +114,19 @@ jobs:
       - name: cargo test
         run: cargo test --locked --all-features --all-targets
   coverage:
-    # use llvm-cov to build and collect coverage and outputs in a format that
-    # is compatible with codecov.io
+    # Collect coverage with llvm-cov. Nothing is uploaded to a third party service.
     #
-    # note that codecov as of v4 requires that CODECOV_TOKEN from
+    # Unlike GitLab, GitHub Actions has no built-in coverage feature: there is no equivalent of
+    # `coverage: '/regex/'` or `artifacts:reports:coverage_report`, so there is no PR widget and
+    # no inline diff annotations. What it does have:
     #
-    #   https://app.codecov.io/gh/<user or org>/<project>/settings
+    # - the job summary, which renders markdown on the workflow run page. The percentages are
+    #   written there, which is the closest thing to GitLab's coverage regex.
+    # - artifacts, which are downloadable zips. The browsable HTML report goes there. (GitHub
+    #   does not serve artifact contents in the browser the way GitLab's artifact browser does.)
     #
-    # is set in two places on your repo:
-    #
-    # - https://github.com/jonhoo/guardian/settings/secrets/actions
-    # - https://github.com/jonhoo/guardian/settings/secrets/dependabot
-    #
-    # (the former is needed for codecov uploads to work with Dependabot PRs)
-    #
-    # PRs coming from forks of your repo will not have access to the token, but
-    # for those, codecov allows uploading coverage reports without a token.
-    # it's all a little weird and inconvenient. see
-    #
-    #   https://github.com/codecov/feedback/issues/112
-    #
-    # for lots of more discussion
+    # To gate merges on coverage instead of just reporting it, add --fail-under-lines <N> to the
+    # `cargo llvm-cov` invocation below and make this job a required check.
     runs-on: ubuntu-latest
     name: ubuntu / stable / coverage
     steps:
@@ -153,13 +145,26 @@ jobs:
       - name: cargo generate-lockfile
         if: hashFiles('Cargo.lock') == ''
         run: cargo generate-lockfile
+      # Run the tests once, then emit every report format from that same profiling data.
       - name: cargo llvm-cov
-        run: cargo llvm-cov --locked --all-features --lcov --output-path lcov.info
-      - name: Record Rust version
-        run: echo "RUST=$(rustc --version)" >> "$GITHUB_ENV"
-      - name: Upload to codecov.io
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # tag=v5.5.2
+        run: |
+          mkdir -p target/llvm-cov
+          cargo llvm-cov --locked --all-features --lcov --output-path target/llvm-cov/lcov.info
+          cargo llvm-cov report --html
+          cargo llvm-cov report --cobertura --output-path target/llvm-cov/cobertura.xml
+      - name: Coverage summary
+        run: |
+          {
+            echo '## Coverage'
+            echo
+            echo '```'
+            cargo llvm-cov report
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # tag=v7.0.1
         with:
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
-          env_vars: OS,RUST
+          name: coverage
+          path: target/llvm-cov/
+          if-no-files-found: error

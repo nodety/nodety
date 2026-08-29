@@ -1,7 +1,9 @@
 # Github config and workflows
 
-In this folder there is configuration for codecoverage, dependabot, and ci
-workflows that check the library more deeply than the default configurations.
+In this folder there is configuration for dependabot and ci workflows that check
+the library more deeply than the default configurations. Coverage is collected in
+the `coverage` job of `workflows/test.yml` and published as a job summary plus a
+downloadable artifact - it is not uploaded to any third party service.
 
 This folder can be or was merged using a --allow-unrelated-histories merge
 strategy from <https://github.com/jonhoo/rust-ci-conf/> which provides a
