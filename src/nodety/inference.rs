@@ -178,6 +178,9 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
                     all_candidates.entry(global_param_id).or_insert_with(Vec::new).extend(candidate);
                 }
             }
+            for candidates in all_candidates.values_mut() {
+                Candidate::drop_union_branch_duplicates(candidates);
+            }
             if !step.allow_uninferred {
                 for candidates in all_candidates.values_mut() {
                     candidates.retain(|candidate| !candidate.t.contains_uninferred(&candidate.scope));

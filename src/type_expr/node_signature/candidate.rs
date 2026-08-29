@@ -1,7 +1,7 @@
 use crate::{
     scope::{ScopePointer, type_parameter::TypeParameter},
     r#type::Type,
-    type_expr::{ScopedTypeExpr, ScopedTypeRef},
+    type_expr::{ScopedTypeExpr, ScopedTypeRef, TypeExpr},
 };
 
 /// A candidate for a type parameter.
@@ -14,6 +14,35 @@ pub struct Candidate<T: Type> {
 }
 
 impl<T: Type> Candidate<T> {
+    /// Removes candidates that duplicate a single arm of a top-level union candidate.
+    ///
+    /// During union traversal, candidate collection emits both the whole union (from the initial
+    /// walker call) and each branch separately. Branch-only candidates can survive the uninferred
+    /// filter before the whole union becomes concrete; dropping them avoids premature picks.
+    ///
+    /// # Example:
+    /// candidates: `[T | Unit, T, Unit]`
+    /// After dedupe: `[T | Unit]`
+    pub fn drop_union_branch_duplicates(candidates: &mut Vec<Candidate<T>>) {
+        let union_arms: Vec<_> = candidates
+            .iter()
+            .filter(|candidate| matches!(candidate.t, TypeExpr::Union(_, _)))
+            .flat_map(|candidate| collect_union_arms(&candidate.t, &candidate.scope))
+            .collect();
+
+        if union_arms.is_empty() {
+            return;
+        }
+
+        candidates.retain(|candidate| {
+            if matches!(candidate.t, TypeExpr::Union(_, _)) {
+                return true;
+            }
+            let normalized = candidate.t.normalize(&candidate.scope);
+            !union_arms.iter().any(|arm| arm == &normalized)
+        });
+    }
+
     /// Picks the best candidate from the list, respecting bounds and preferring common supertypes.
     /// Returns `None` if the parameter bound is uninferred or no candidate satisfies it.
     pub fn pick_for_param(
@@ -75,9 +104,56 @@ impl<T: Type> Candidate<T> {
     }
 }
 
+fn collect_union_arms<T: Type>(expr: &ScopedTypeExpr<T>, scope: &ScopePointer<T>) -> Vec<ScopedTypeExpr<T>> {
+    match expr {
+        TypeExpr::Union(a, b) => {
+            let mut arms = collect_union_arms(a, scope);
+            arms.extend(collect_union_arms(b, scope));
+            arms
+        }
+        other => vec![other.normalize(scope)],
+    }
+}
+
 fn rate_candidate<T: Type>(candidate: &Candidate<T>) -> i8 {
     if candidate.t.is_never(&candidate.scope).unwrap_or(false) {
         return -1;
     };
     if candidate.t.contains_type_param() { 1 } else { 0 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::notation::parse::{expr, scope};
+    use crate::scope::ScopePointer;
+
+    fn candidate(t: &str, scope: ScopePointer<crate::demo_type::DemoType>) -> Candidate<crate::demo_type::DemoType> {
+        Candidate { t: expr(t), scope }
+    }
+
+    #[test]
+    fn drop_union_branch_duplicates_removes_arms() {
+        let s = ScopePointer::new(scope("<T>"));
+        let mut candidates = vec![
+            candidate("T | Unit", ScopePointer::clone(&s)),
+            candidate("T", ScopePointer::clone(&s)),
+            candidate("Unit", ScopePointer::clone(&s)),
+        ];
+
+        Candidate::drop_union_branch_duplicates(&mut candidates);
+
+        assert_eq!(vec![candidate("T | Unit", s)], candidates);
+    }
+
+    #[test]
+    fn drop_union_branch_duplicates_keeps_unrelated_candidates() {
+        let s = ScopePointer::new(scope("<T>"));
+        let mut candidates =
+            vec![candidate("Integer", ScopePointer::clone(&s)), candidate("String", ScopePointer::clone(&s))];
+
+        Candidate::drop_union_branch_duplicates(&mut candidates);
+
+        assert_eq!(vec![candidate("Integer", ScopePointer::clone(&s)), candidate("String", s)], candidates);
+    }
 }
