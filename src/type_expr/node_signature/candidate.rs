@@ -49,7 +49,7 @@ impl<T: Type> Candidate<T> {
         mut candidates: Vec<Candidate<T>>,
         type_param: &TypeParameter<T, ScopedTypeRef<T>>,
         param_scope: &ScopePointer<T>,
-    ) -> Option<Candidate<T>> {
+    ) -> Option<(ScopedTypeExpr<T>, ScopePointer<T>)> {
         if let Some(bound) = &type_param.bound
             && !bound.is_any(param_scope).unwrap_or(false)
         {
@@ -72,9 +72,16 @@ impl<T: Type> Candidate<T> {
             return None;
         }
         if let Some(best_common_supertype) = Self::pick_best(&candidates) {
-            Some(best_common_supertype.clone())
+            Some((best_common_supertype.t.clone(), best_common_supertype.scope.clone()))
         } else {
-            candidates.pop()
+            Some((
+                TypeExpr::from_unions(
+                    candidates
+                        .into_iter()
+                        .map(|c| TypeExpr::Ref(ScopedTypeRef::ScopedExpr { expr: Box::new(c.t), scope: c.scope })),
+                ),
+                ScopePointer::new_root(),
+            ))
         }
     }
 

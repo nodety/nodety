@@ -459,20 +459,20 @@ fn test_infer_most_generic_type_from_element_at_index() {
     assert_eq!(expr("Integer | Unit"), inferred_u.normalize(&inferred_u_scope));
 }
 
-// ///
-// ///                                       <T>
-// ///  |Array<Integer>|Array<Float>| ----- |Array<T>     |
-// #[test]
-// fn test_infer_from_param_inside_union() {
-//     let engine =
-//         graph(vec![sig_u("() -> (Array<Integer> | Array<Float>)"), sig_u("<T>(Array<T>) -> ()")], vec![(0, 1, 0, 0)]);
-//     let scopes = engine.infer(&InferenceConfig::default());
+///
+///                                       <T>
+///  |Array<Integer>|Array<Float>| ----- |Array<T>     |
+#[test]
+fn test_infer_from_param_inside_union() {
+    let engine =
+        graph(vec![sig_u("() -> (Array<Integer> | Array<Float>)"), sig_u("<T>(Array<T>) -> ()")], vec![(0, 1, 0, 0)]);
+    let scopes = engine.infer(&InferenceConfig::default());
 
-//     let scopes1 = scopes.get(&NodeIndex::from(1)).unwrap();
+    let scopes1 = scopes.get(&NodeIndex::from(1)).unwrap();
 
-//     let (inferred_t, inferred_t_scope) = scopes1.lookup_inferred(&"T".into()).unwrap();
-//     assert_eq!(expr("Integer | Float"), inferred_t.normalize(&inferred_t_scope));
-// }
+    let (inferred_t, inferred_t_scope) = scopes1.lookup_inferred(&"T".into()).unwrap();
+    assert_eq!(expr("Integer | Float"), inferred_t.normalize(&inferred_t_scope));
+}
 
 // #[test]
 // fn test_infer_outer_signature_identity() {

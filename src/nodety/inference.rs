@@ -199,12 +199,12 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
 
                 candidates
                     .retain(|candidate| !candidate.t.references(&HashSet::from([global_id.clone()]), &candidate.scope));
-                let Some(picked_candidate) =
+                let Some((picked_candidate_type, picked_candidate_scope)) =
                     Candidate::pick_for_param(candidates, registered_param.parameter(), param_scope)
                 else {
                     continue;
                 };
-                if param_scope.infer(&global_id.local_id, picked_candidate.t.clone(), picked_candidate.scope).is_ok() {
+                if param_scope.infer(&global_id.local_id, picked_candidate_type, picked_candidate_scope).is_ok() {
                     // println!("inferred {:?} = {:#?}", global_id.local_id, picked_candidate.t);
                     if let Some(sa) = &mut stop_after {
                         sa.remove(&global_id);
