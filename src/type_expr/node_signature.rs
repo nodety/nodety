@@ -7,7 +7,7 @@ use crate::{
     scope::{LocalParamID, Scope, ScopePointer, type_parameter::TypeParameter},
     r#type::Type,
     type_expr::{
-        AsScopePortal, ScopePortal, TypeExpr, TypeExprScope, TypeExprValidationError, Unscoped,
+        AsScopedRef, ParamRef, ScopedTypeRef, TypeExpr, TypeExprValidationError, TypeRef,
         node_signature::{port_types::PortTypes, type_parameters::TypeParameters},
         subtyping::{DetailedSupertypeDiagnostics, NoSupertypeDiagnostics, SupertypeResult},
     },
@@ -34,31 +34,31 @@ pub mod type_parameters;
     serde(
         rename_all = "camelCase",
         bound(
-            serialize = "T: Serialize, T::Operator: Serialize, S: Serialize",
-            deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>, S: Deserialize<'de>"
+            serialize = "T: Serialize, T::Operator: Serialize, R: Serialize",
+            deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>, R: Deserialize<'de>"
         )
     )
 )]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
-#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, S: JsonSchema"))]
+#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, R: JsonSchema"))]
 /// Function-like type for a node: generic parameters, inputs, outputs, and defaults.
 /// Written in notation as `<T>(T) -> (T)` for the identity node.
 #[cfg_attr(feature = "tsify", derive(Tsify))]
-pub struct NodeSignature<T: Type, S: TypeExprScope = Unscoped> {
+pub struct NodeSignature<T: Type, R: TypeRef = ParamRef> {
     /// Generic parameters with their bounds and defaults.
-    pub parameters: TypeParameters<T, S>,
+    pub parameters: TypeParameters<T, R>,
 
     /// inputs and outputs are no PortTypes because having them TypeExpr
     /// Enables one to express `() -> Never` which is the node signature
     /// assignable to all other node signatures. Useful for inferring what
     /// type a closure should be.
-    pub inputs: TypeExpr<T, S>,
+    pub inputs: TypeExpr<T, R>,
 
-    pub outputs: TypeExpr<T, S>,
+    pub outputs: TypeExpr<T, R>,
 
     /// Types that get used when there is no connection to the input.
     /// These get ignored for nested NodeSignatures.
-    pub default_input_types: BTreeMap<usize, TypeExpr<T, S>>,
+    pub default_input_types: BTreeMap<usize, TypeExpr<T, R>>,
 
     /// Tags this node *provides* to downstream consumers.
     ///
@@ -86,7 +86,7 @@ pub struct NodeSignature<T: Type, S: TypeExprScope = Unscoped> {
     pub required_tags: HashSet<u32>,
 }
 
-impl<T: Type, S: TypeExprScope> Default for NodeSignature<T, S> {
+impl<T: Type, R: TypeRef> Default for NodeSignature<T, R> {
     fn default() -> Self {
         Self {
             parameters: TypeParameters::default(),
@@ -99,7 +99,7 @@ impl<T: Type, S: TypeExprScope> Default for NodeSignature<T, S> {
     }
 }
 
-impl<T: Type, S: TypeExprScope> NodeSignature<T, S> {
+impl<T: Type, R: TypeRef> NodeSignature<T, R> {
     /// Sets the provided tags to `Some(tags)`. See [`NodeSignature::tags`].
     pub fn with_tags(self, tags: HashSet<u32>) -> Self {
         Self { tags: Some(tags), ..self }
@@ -110,7 +110,7 @@ impl<T: Type, S: TypeExprScope> NodeSignature<T, S> {
         Self { required_tags, ..self }
     }
 
-    pub fn with_default_input_types(self, default_input_types: BTreeMap<usize, TypeExpr<T, S>>) -> Self {
+    pub fn with_default_input_types(self, default_input_types: BTreeMap<usize, TypeExpr<T, R>>) -> Self {
         Self { default_input_types, ..self }
     }
 }
@@ -121,12 +121,12 @@ impl<T: Type> NodeSignature<T> {
     }
 }
 
-impl<T: Type> NodeSignature<T, ScopePortal<T>> {
+impl<T: Type> NodeSignature<T, ScopedTypeRef<T>> {
     /// Returns true if `self` could be replaced by `child` in a
     /// graph without invalidating any types. This is a convenience
     /// wrapper for the internal machinery. Needs ownership because
     /// the signature has to get wrapped in a type expression.
-    pub fn supertype_of(self, child: NodeSignature<T, ScopePortal<T>>) -> SupertypeResult<NoSupertypeDiagnostics> {
+    pub fn supertype_of(self, child: NodeSignature<T, ScopedTypeRef<T>>) -> SupertypeResult<NoSupertypeDiagnostics> {
         let parent_expr = TypeExpr::NodeSignature(Box::new(self));
         let child_expr = TypeExpr::NodeSignature(Box::new(child));
 
@@ -137,7 +137,7 @@ impl<T: Type> NodeSignature<T, ScopePortal<T>> {
 
     pub fn supertype_of_detailed(
         self,
-        child: NodeSignature<T, ScopePortal<T>>,
+        child: NodeSignature<T, ScopedTypeRef<T>>,
     ) -> SupertypeResult<DetailedSupertypeDiagnostics<T>> {
         let parent_expr = TypeExpr::NodeSignature(Box::new(self));
         let child_expr = TypeExpr::NodeSignature(Box::new(child));
@@ -171,19 +171,15 @@ impl<T: Type> NodeSignature<T, ScopePortal<T>> {
     }
 }
 
-impl<T: Type, S: AsScopePortal<T>> NodeSignature<T, S> {
+impl<T: Type, R: AsScopedRef<T>> NodeSignature<T, R> {
     /// Normalizes type parameters in inputs, outputs, and parameter bounds/defaults.
     /// `default_input_types` are carried over as-is (widened, not normalized) — they get ignored for nested NodeSignatures.
-    pub fn normalize(&self, scope: &ScopePointer<T>) -> NodeSignature<T, ScopePortal<T>> {
+    pub fn normalize(&self, scope: &ScopePointer<T>) -> NodeSignature<T, ScopedTypeRef<T>> {
         NodeSignature {
             parameters: self.parameters.iter().map(|(ident, param)| (*ident, param.normalize(scope))).collect(),
             inputs: self.inputs.normalize(scope),
             outputs: self.outputs.normalize(scope),
-            default_input_types: self
-                .default_input_types
-                .iter()
-                .map(|(k, v)| (*k, v.clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone())))
-                .collect(),
+            default_input_types: self.default_input_types.iter().map(|(k, v)| (*k, v.clone().into_scoped())).collect(),
             tags: self.tags.clone(),
             required_tags: self.required_tags.clone(),
         }
@@ -195,7 +191,7 @@ pub struct CyclicReferenceError;
 /// # Validates that
 /// the parameters don't contain cycles as in <T extends U, U extends T>() -> ()
 pub fn validate_type_parameters<T: Type>(
-    parameters: &BTreeMap<LocalParamID, TypeParameter<T, ScopePortal<T>>>,
+    parameters: &BTreeMap<LocalParamID, TypeParameter<T, ScopedTypeRef<T>>>,
 ) -> Result<(), CyclicReferenceError> {
     let mut graph = DiGraph::new();
     let mut ident_to_idx = BTreeMap::new();

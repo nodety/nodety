@@ -1,4 +1,4 @@
-use crate::type_expr::{ScopePortal, ScopedTypeExpr, TypeExpr, node_signature::NodeSignature};
+use crate::type_expr::{ConcreteTypeExpr, TypeExpr, TypeRef, node_signature::NodeSignature};
 use std::{collections::BTreeMap, fmt::Debug};
 
 #[cfg(feature = "json-schema")]
@@ -118,13 +118,18 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
     ///
     /// Checkout the [SIUnit](crate::demo_type::SIUnit) type for a reference implementation with operators.
     ///
+    /// # Parameters
+    /// `a` and `b` are fully normalized and provably free of type parameters, so they can be
+    /// understood without a scope. If either operand still references an uninferred parameter,
+    /// nodety leaves the operation unevaluated instead of calling this method.
+    ///
     /// # Returns
     /// the result type of the operation, or `Never` if the operation is not permitted.
     fn operation(
-        _a: &TypeExpr<Self, ScopePortal<Self>>,
+        _a: &ConcreteTypeExpr<Self>,
         _operator: &Self::Operator,
-        _b: &TypeExpr<Self, ScopePortal<Self>>,
-    ) -> ScopedTypeExpr<Self> {
+        _b: &ConcreteTypeExpr<Self>,
+    ) -> ConcreteTypeExpr<Self> {
         TypeExpr::Never
     }
 
@@ -135,23 +140,29 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
     ///
     /// # Returns
     /// The key type of `self` or [TypeExpr::Never] if it has no key type.
-    fn key_type(&self, _fields: Option<&BTreeMap<String, ScopedTypeExpr<Self>>>) -> ScopedTypeExpr<Self> {
+    fn key_type<R: TypeRef>(&self, _fields: Option<&BTreeMap<String, TypeExpr<Self, R>>>) -> ConcreteTypeExpr<Self> {
         TypeExpr::Never
     }
 
     /// Used to evaluate index expressions.
     ///
     /// # Parameters
-    /// - `fields`: if `self` is wrapped in a constructor then these are the normalized parameters.
+    /// - `fields`: if `self` is wrapped in a constructor then these are the parameters.
+    /// - `index`: fully normalized and provably free of type parameters. If the index type is not
+    ///   yet known, nodety leaves the index expression unevaluated instead of calling this.
     ///
     /// # Returns
     /// The type representing `self[index]`. If `self` cannot be indexed with the index type, then [TypeExpr::Any] could be returned.
     /// At least thats what typescript does. Apply your own judgement.
-    fn index(
+    ///
+    /// The result is generic over the field reference kind so that a field type can be returned
+    /// as is (`{ a: T }["a"]` is `T`) without the implementation ever being able to invent a
+    /// reference of its own.
+    fn index<R: TypeRef>(
         &self,
-        _fields: Option<&BTreeMap<String, ScopedTypeExpr<Self>>>,
-        _index: &ScopedTypeExpr<Self>,
-    ) -> ScopedTypeExpr<Self> {
+        _fields: Option<&BTreeMap<String, TypeExpr<Self, R>>>,
+        _index: &ConcreteTypeExpr<Self>,
+    ) -> TypeExpr<Self, R> {
         TypeExpr::Any
     }
 
@@ -160,14 +171,14 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
     /// In most other type systems, `never` is probably a safer bet.
     ///
     /// Implement this method if you want to customize this behavior.
-    fn keyof_any() -> ScopedTypeExpr<Self> {
+    fn keyof_any() -> ConcreteTypeExpr<Self> {
         TypeExpr::Never
     }
 
     /// Same as in ts.
     ///
     /// Overwrite this to customize the behavior.
-    fn keyof_node_signature(_node_signature: &NodeSignature<Self, ScopePortal<Self>>) -> ScopedTypeExpr<Self> {
+    fn keyof_node_signature<R: TypeRef>(_node_signature: &NodeSignature<Self, R>) -> ConcreteTypeExpr<Self> {
         TypeExpr::Never
     }
 
@@ -180,8 +191,8 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
     ///
     /// then `A` is a supertype of `B` when MyUndefinedType returns true for `optional_in_constructor`.
     ///
-    /// The behavior can be thought of the concept of undefined in typescript. Properties
-    /// that are allowed to be undefined are entirely optional in records.
+    /// The behavior can be thought of as the concept of undefined in typescript. Properties
+    /// that are allowed to be undefined are optional in records.
     fn optional_in_constructor(&self) -> bool {
         false
     }

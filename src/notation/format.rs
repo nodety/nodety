@@ -4,7 +4,7 @@ use crate::{
     scope::{LocalParamID, type_parameter::TypeParameter},
     r#type::Type,
     type_expr::{
-        TypeExpr, Unscoped,
+        ParamRef, TypeExpr, UnscopedRef,
         node_signature::{NodeSignature, type_parameters::TypeParameters},
     },
 };
@@ -15,9 +15,13 @@ use std::collections::BTreeMap;
 ///
 /// Implement this for your types to enable formatting of `TypeExpr<YourType>`.
 pub trait FormattableType: Type {
-    fn format_type(
+    /// Generic over the reference kind so that both fully concrete
+    /// ([NoRef](crate::type_expr::NoRef)) and parameterized ([ParamRef]) expressions can be
+    /// formatted. Constructor parameters are handed over as they are — format them with
+    /// [TypeExpr::format_type].
+    fn format_type<R: UnscopedRef>(
         &self,
-        parameters: Option<&BTreeMap<String, TypeExpr<Self>>>,
+        parameters: Option<&BTreeMap<String, TypeExpr<Self, R>>>,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result;
 
@@ -47,13 +51,13 @@ fn escape_string_content(s: &str) -> String {
 }
 
 /// Wrapper for displaying type parameters in notation (e.g. `<T, U extends T>`).
-pub struct TypeParamsDisplay<'a, T: FormattableType> {
-    pub params: &'a BTreeMap<LocalParamID, TypeParameter<T>>,
+pub struct TypeParamsDisplay<'a, T: FormattableType, R: UnscopedRef = ParamRef> {
+    pub params: &'a BTreeMap<LocalParamID, TypeParameter<T, R>>,
 }
 
 /// Formats type parameters to notation (e.g. `<T extends Comparable, U = Any>`).
-pub fn format_type_params<T: FormattableType>(
-    params: &BTreeMap<LocalParamID, TypeParameter<T>>,
+pub fn format_type_params<T: FormattableType, R: UnscopedRef>(
+    params: &BTreeMap<LocalParamID, TypeParameter<T, R>>,
     f: &mut std::fmt::Formatter<'_>,
 ) -> fmt::Result {
     if params.is_empty() {
@@ -90,16 +94,16 @@ fn format_type_param(param_id: LocalParamID, f: &mut std::fmt::Formatter<'_>) ->
     Ok(())
 }
 
-impl<T: FormattableType> fmt::Display for TypeParameters<T> {
+impl<T: FormattableType, R: UnscopedRef> fmt::Display for TypeParameters<T, R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.is_empty() { write!(f, "<>") } else { format_type_params(self, f) }
     }
 }
 
 impl FormattableType for DemoType {
-    fn format_type(
+    fn format_type<R: UnscopedRef>(
         &self,
-        parameters: Option<&BTreeMap<String, TypeExpr<Self>>>,
+        parameters: Option<&BTreeMap<String, TypeExpr<Self, R>>>,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {
         match self {
@@ -159,7 +163,7 @@ impl FormattableType for DemoType {
     }
 }
 
-impl<T: FormattableType> NodeSignature<T> {
+impl<T: FormattableType, R: UnscopedRef> NodeSignature<T, R> {
     pub fn format_type_notation(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
         format_type_params(&self.parameters, f)?;
         self.inputs.format_type(f, true)?;
@@ -168,12 +172,9 @@ impl<T: FormattableType> NodeSignature<T> {
     }
 }
 
-impl<T: FormattableType> TypeExpr<T, Unscoped> {
+impl<T: FormattableType, R: UnscopedRef> TypeExpr<T, R> {
     pub fn format_type(&self, f: &mut std::fmt::Formatter<'_>, atomic: bool) -> fmt::Result {
         match self {
-            // scope is !
-            Self::ScopePortal { scope: never, .. } => match *never {},
-
             Self::Any => Ok(write!(f, "Any")?),
             Self::Conditional(conditional) => {
                 if atomic {
@@ -205,7 +206,7 @@ impl<T: FormattableType> TypeExpr<T, Unscoped> {
                 }
                 Ok(())
             }
-            Self::Type(inst) => inst.format_type(None, f),
+            Self::Type(inst) => inst.format_type::<R>(None, f),
             Self::Intersection(a, b) => {
                 if atomic {
                     write!(f, "(")?;
@@ -265,11 +266,12 @@ impl<T: FormattableType> TypeExpr<T, Unscoped> {
                 }
                 Ok(write!(f, ")")?)
             }
-            Self::TypeParameter(param, infer) => {
+            Self::Ref(r) => {
+                let ParamRef { param_id, infer } = r.as_param();
                 if !*infer {
                     write!(f, "!")?;
                 }
-                format_type_param(*param, f)?;
+                format_type_param(*param_id, f)?;
                 Ok(())
             }
             Self::Union(a, b) => {
@@ -289,21 +291,21 @@ impl<T: FormattableType> TypeExpr<T, Unscoped> {
     }
 }
 
-impl<T: FormattableType> std::fmt::Display for TypeExpr<T> {
+impl<T: FormattableType, R: UnscopedRef> std::fmt::Display for TypeExpr<T, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.format_type(f, false)
     }
 }
 
-impl<T: FormattableType> std::fmt::Display for NodeSignature<T> {
+impl<T: FormattableType, R: UnscopedRef> std::fmt::Display for NodeSignature<T, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.format_type_notation(f)
     }
 }
 
 /// Formats type hints to notation (e.g. `T = Integer, U = String`).
-pub fn format_type_hints<T: FormattableType>(
-    hints: &TypeHints<T, Unscoped>,
+pub fn format_type_hints<T: FormattableType, R: UnscopedRef>(
+    hints: &TypeHints<T, R>,
     f: &mut std::fmt::Formatter<'_>,
 ) -> fmt::Result {
     let mut first = true;
@@ -319,13 +321,13 @@ pub fn format_type_hints<T: FormattableType>(
     Ok(())
 }
 
-impl<T: FormattableType> std::fmt::Display for TypeHints<T, Unscoped> {
+impl<T: FormattableType, R: UnscopedRef> std::fmt::Display for TypeHints<T, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         format_type_hints(self, f)
     }
 }
 
-impl<T: FormattableType> std::fmt::Display for TypeParamsDisplay<'_, T> {
+impl<T: FormattableType, R: UnscopedRef> std::fmt::Display for TypeParamsDisplay<'_, T, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         format_type_params(self.params, f)
     }

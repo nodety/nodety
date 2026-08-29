@@ -2,7 +2,7 @@ use nodety::{
     NoOperator, Type, TypeExpr,
     notation::{format::FormattableType, parse::ParsableType},
     scope::ScopePointer,
-    type_expr::{ScopePortal, TypeExprScope, node_signature::port_types::PortTypes},
+    type_expr::{ParamTypeRef, ScopedTypeRef, UnscopedRef, node_signature::port_types::PortTypes},
 };
 use nom::{IResult, Parser, bytes::complete::tag, combinator::value};
 use proptest::prelude::*;
@@ -34,9 +34,9 @@ impl Type for SimpleType {
 }
 
 impl FormattableType for SimpleType {
-    fn format_type(
+    fn format_type<R: UnscopedRef>(
         &self,
-        _parameters: Option<&BTreeMap<String, TypeExpr<Self>>>,
+        _parameters: Option<&BTreeMap<String, TypeExpr<Self, R>>>,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {
         match self {
@@ -50,7 +50,7 @@ impl FormattableType for SimpleType {
 }
 
 impl ParsableType for SimpleType {
-    fn parse<S: TypeExprScope>(input: &str) -> IResult<&str, TypeExpr<Self, S>> {
+    fn parse<R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<Self, R>> {
         value(TypeExpr::Type(SimpleType::Atom), tag("Atom")).parse(input)
     }
 
@@ -69,7 +69,7 @@ impl Arbitrary for SimpleType {
 }
 
 fn normalize_simple(expr: TypeExpr<SimpleType>) -> TypeExpr<SimpleType> {
-    let mut scoped: TypeExpr<SimpleType, ScopePortal<SimpleType>> = expr.into();
+    let mut scoped: TypeExpr<SimpleType, ScopedTypeRef<SimpleType>> = expr.into();
     scoped.traverse_mut(
         &ScopePointer::new_root(),
         &mut |expr, _scope, _| match expr {
@@ -90,5 +90,5 @@ fn normalize_simple(expr: TypeExpr<SimpleType>) -> TypeExpr<SimpleType> {
         },
         false,
     );
-    scoped.try_into_unscoped().expect("Unscoped can't have scope portals")
+    scoped.try_into_unscoped().expect("ParamRef can't have scope portals")
 }

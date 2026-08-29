@@ -1,11 +1,11 @@
 use crate::{
     scope::ScopePointer,
     r#type::Type,
-    type_expr::{AsScopePortal, ScopePortal, ScopedTypeExpr, TypeExpr, conditional::Conditional},
+    type_expr::{AsScopedRef, ScopedRefView, ScopedTypeExpr, ScopedTypeRef, TypeExpr, conditional::Conditional},
 };
 use std::collections::BTreeMap;
 
-impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
+impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
     /// Same as [normalize](Self::normalize) but for types that aren't context sensitive.
     pub fn normalize_naive(&self) -> ScopedTypeExpr<T> {
         self.normalize(&ScopePointer::new_root())
@@ -28,11 +28,16 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
                 key.normalize(&key_scope)
             }
 
-            Self::Operation { a, b, operator } => {
-                let a_normalized = a.normalize(&scope);
-                let b_normalized = b.normalize(&scope);
-                T::operation(&a_normalized, operator, &b_normalized)
-            }
+            // The operands have to be fully resolved before the operation can be evaluated.
+            // As long as they aren't, the operation stays as it is and gets evaluated later.
+            Self::Operation { a, b, operator } => match (a.normalize_concrete(&scope), b.normalize_concrete(&scope)) {
+                (Some(a_normalized), Some(b_normalized)) => T::operation(&a_normalized, operator, &b_normalized).into(),
+                _ => TypeExpr::Operation {
+                    a: Box::new(a.normalize(&scope)),
+                    operator: operator.clone(),
+                    b: Box::new(b.normalize(&scope)),
+                },
+            },
 
             // If any of the two types is never, then this type is equivalent to the other type (even if that type is never as well).
             // Similarly if any of the two types is any, the result type is also any.
@@ -105,7 +110,7 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
                 if parameters.is_empty() {
                     return TypeExpr::Type(inner.clone());
                 }
-                let mut normalized_params: BTreeMap<String, TypeExpr<T, ScopePortal<T>>> = BTreeMap::new();
+                let mut normalized_params: BTreeMap<String, ScopedTypeExpr<T>> = BTreeMap::new();
                 for (ident, param) in parameters {
                     normalized_params.insert(ident.clone(), param.normalize(&scope));
                 }
@@ -116,13 +121,33 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
 
             Self::PortTypes(ports) => TypeExpr::PortTypes(Box::new(ports.normalize(&scope))),
 
-            Self::TypeParameter(param, infer) => {
-                if let Some((inferred, inferred_scope)) = scope.lookup_inferred(param) {
-                    inferred.normalize(&inferred_scope)
-                } else {
-                    TypeExpr::TypeParameter(*param, *infer)
+            Self::Ref(r) => match r.view() {
+                ScopedRefView::Param(param) => {
+                    if let Some((inferred, inferred_scope)) = scope.lookup_inferred(&param.param_id) {
+                        inferred.normalize(&inferred_scope)
+                    } else {
+                        TypeExpr::Ref(ScopedTypeRef::Param(*param))
+                    }
                 }
-            }
+
+                ScopedRefView::ScopedExpr { expr, scope: portal } => {
+                    // Normalize beforehand so that `normalized_expr.contains_type_param` is checked after params got resolved.
+                    let normalized_expr = expr.normalize(portal);
+                    // If the portal teleports to the same scope as we're in already it has no effect and can be removed.
+                    // if both the portal and the running scope are empty, it is also safe to say that it doesn't have an effect.
+                    // If the running scope is not empty but the portal is not, the portal still blocks its contents from the outer scope
+                    // And thus shouldn't be removed.
+                    if portal == &scope
+                        || (portal.is_empty() && scope.is_empty())
+                        || !normalized_expr.contains_type_param()
+                    {
+                        // remove the portal
+                        normalized_expr
+                    } else {
+                        TypeExpr::scope_portal(normalized_expr, ScopePointer::clone(portal))
+                    }
+                }
+            },
 
             Self::Index { expr, index } => {
                 let Some((index_type, index_scope)) = expr.index(index, &scope, &scope) else {
@@ -132,26 +157,6 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
                     };
                 };
                 index_type.normalize(&index_scope)
-            }
-
-            Self::ScopePortal { expr, scope: field_scope } => {
-                let portal = &field_scope.as_scope_portal().portal;
-                // Normalize beforehand so that `normalized_expr.contains_type_param` is checked after params got resolved.
-                let normalized_expr = expr.normalize(portal);
-                // If the portal teleports to the same scope as we're in already it has no effect and can be removed.
-                // if both the portal and the running scope are empty, it is also safe to say that it doesn't have an effect.
-                // If the running scope is not empty but the portal is not, the portal still blocks its contents from the outer scope
-                // And thus shouldn't be removed.
-                if portal == &scope || (portal.is_empty() && scope.is_empty()) || !normalized_expr.contains_type_param()
-                {
-                    // remove the portal
-                    normalized_expr
-                } else {
-                    TypeExpr::ScopePortal {
-                        expr: Box::new(normalized_expr),
-                        scope: ScopePortal { portal: ScopePointer::clone(portal) },
-                    }
-                }
             }
         }
     }
@@ -170,7 +175,7 @@ mod tests {
         demo_type::DemoType,
         notation::parse::expr,
         scope::{LocalParamID, Scope, ScopePointer, type_parameter::TypeParameter},
-        type_expr::{ScopePortal, TypeExpr},
+        type_expr::{ScopedTypeRef, TypeExpr},
     };
     use assert_matches::assert_matches;
 
@@ -179,10 +184,7 @@ mod tests {
         let mut scope = Scope::new_root();
         scope.define(LocalParamID(0), TypeParameter::default());
         let scope = ScopePointer::new(scope);
-        let expr = TypeExpr::<DemoType, _>::ScopePortal {
-            expr: Box::new(TypeExpr::Any),
-            scope: ScopePortal { portal: ScopePointer::clone(&scope) },
-        };
+        let expr = TypeExpr::<DemoType, _>::scope_portal(TypeExpr::Any, ScopePointer::clone(&scope));
         let normalized = expr.normalize(&scope);
         assert_eq!(normalized, TypeExpr::Any);
     }
@@ -192,12 +194,10 @@ mod tests {
         let mut portal_scope = Scope::new_root();
         portal_scope.define(LocalParamID(0), TypeParameter::default());
         let portal_scope = ScopePointer::new(portal_scope);
-        let expr = TypeExpr::<DemoType, _>::ScopePortal {
-            expr: Box::new(TypeExpr::TypeParameter(LocalParamID(0), true)),
-            scope: ScopePortal { portal: ScopePointer::clone(&portal_scope) },
-        };
+        let expr =
+            TypeExpr::<DemoType, _>::scope_portal(TypeExpr::param(LocalParamID(0)), ScopePointer::clone(&portal_scope));
         let normalized = expr.normalize(&ScopePointer::new_root());
-        assert_matches!(normalized, TypeExpr::ScopePortal { .. });
+        assert_matches!(normalized, TypeExpr::Ref(ScopedTypeRef::ScopedExpr { .. }));
     }
 
     #[test]

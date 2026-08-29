@@ -1,7 +1,7 @@
 use crate::{
     scope::type_parameter::TypeParameter,
     r#type::Type,
-    type_expr::{ScopePortal, ScopedTypeExpr, TypeExpr},
+    type_expr::{ScopedTypeExpr, ScopedTypeRef, TypeExpr},
 };
 use std::{
     borrow::Cow,
@@ -138,7 +138,7 @@ pub struct Scope<T: Type> {
 /// A type parameter in a scope with its inferred value (if any).
 #[derive(Debug, Clone)]
 pub struct RegisteredTypeVar<T: Type> {
-    parameter: TypeParameter<T, ScopePortal<T>>,
+    parameter: TypeParameter<T, ScopedTypeRef<T>>,
     inferred: RefCell<Option<(ScopedTypeExpr<T>, ScopePointer<T>)>>,
 }
 
@@ -155,7 +155,7 @@ impl<T: Type> RegisteredTypeVar<T> {
         }
     }
 
-    pub fn parameter(&self) -> &TypeParameter<T, ScopePortal<T>> {
+    pub fn parameter(&self) -> &TypeParameter<T, ScopedTypeRef<T>> {
         &self.parameter
     }
 
@@ -263,7 +263,7 @@ impl<T: Type> Scope<T> {
     }
 
     /// Defines a type parameter in this scope.
-    pub fn define(&mut self, ident: LocalParamID, parameter: TypeParameter<T, ScopePortal<T>>) {
+    pub fn define(&mut self, ident: LocalParamID, parameter: TypeParameter<T, ScopedTypeRef<T>>) {
         self.parameters.insert(ident, RegisteredTypeVar { parameter, inferred: RefCell::new(None) });
     }
 
@@ -273,7 +273,7 @@ impl<T: Type> Scope<T> {
     pub fn infer(
         &self,
         ident: &LocalParamID,
-        inferred: TypeExpr<T, ScopePortal<T>>,
+        inferred: ScopedTypeExpr<T>,
         inferred_scope: ScopePointer<T>,
     ) -> Result<(), ScopeError> {
         let Some(registered) = self.parameters.get(ident) else {
@@ -289,7 +289,7 @@ impl<T: Type> Scope<T> {
 
     /// # Returns
     /// An iterator over all variable identifiers that are not yet inferred.
-    pub fn uninferred(&self) -> impl Iterator<Item = (LocalParamID, TypeParameter<T, ScopePortal<T>>)> {
+    pub fn uninferred(&self) -> impl Iterator<Item = (LocalParamID, TypeParameter<T, ScopedTypeRef<T>>)> {
         self.parameters.iter().filter_map(|(ident, param)| {
             if param.inferred.borrow().is_none() { Some((*ident, param.parameter.clone())) } else { None }
         })

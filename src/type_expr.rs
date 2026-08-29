@@ -18,6 +18,9 @@ use std::{
     fmt::Debug,
 };
 
+mod type_ref;
+pub use type_ref::*;
+
 #[cfg(feature = "json-schema")]
 use schemars::JsonSchema;
 #[cfg(feature = "serde")]
@@ -40,75 +43,6 @@ pub mod traversal;
 pub use conversions::HasScopePortals;
 pub use to_type_expr::ToTypeExpr;
 
-mod private {
-    pub trait Sealed {}
-}
-
-pub trait TypeExprScope: private::Sealed + Clone {}
-
-#[derive(Debug, Clone)]
-pub struct ScopePortal<T: Type> {
-    portal: ScopePointer<T>,
-}
-
-impl<T: Type> ScopePortal<T> {
-    pub fn new(portal: ScopePointer<T>) -> Self {
-        Self { portal }
-    }
-}
-
-impl<T: Type> PartialEq for ScopePortal<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.portal == other.portal
-    }
-}
-
-/// In the future this could contain information about the portal scope.
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "json-schema", derive(JsonSchema))]
-#[cfg_attr(feature = "tsify", derive(Tsify))]
-#[cfg_attr(feature = "tsify", tsify(type = "{ readonly __brand: 'erased-scope-portal' }"))]
-pub struct ErasedScopePortal;
-
-/// crate local version of [std::convert::Infallible]
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "json-schema", derive(JsonSchema))]
-#[cfg_attr(feature = "tsify", derive(Tsify))]
-#[cfg_attr(feature = "tsify", tsify(type = "never"))]
-pub enum Unscoped {
-    // Never add a variant here!
-}
-
-impl private::Sealed for Unscoped {}
-impl private::Sealed for ErasedScopePortal {}
-impl<T: Type> private::Sealed for ScopePortal<T> {}
-
-impl<T: Type> TypeExprScope for ScopePortal<T> {}
-impl TypeExprScope for Unscoped {}
-impl TypeExprScope for ErasedScopePortal {}
-
-/// A [TypeExprScope] that can be viewed as a [ScopePortal] by reference, letting functions work
-/// with either [Unscoped] or `Scoped` [TypeExpr]s
-pub trait AsScopePortal<T: Type>: TypeExprScope + PartialEq {
-    fn as_scope_portal(&self) -> &ScopePortal<T>;
-}
-
-impl<T: Type> AsScopePortal<T> for ScopePortal<T> {
-    fn as_scope_portal(&self) -> &ScopePortal<T> {
-        self
-    }
-}
-
-impl<T: Type> AsScopePortal<T> for Unscoped {
-    fn as_scope_portal(&self) -> &ScopePortal<T> {
-        match *self {
-            // Never
-        }
-    }
-}
-
 /// Type expression—the core type representation in nodety.
 ///
 /// Can represent unions, intersections, conditional types, type variables, keyof, index access,
@@ -122,16 +56,16 @@ impl<T: Type> AsScopePortal<T> for Unscoped {
         tag = "type",
         content = "data",
         bound(
-            serialize = "T: Serialize, T::Operator: Serialize, S: Serialize",
-            deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>, S: Deserialize<'de>"
+            serialize = "T: Serialize, T::Operator: Serialize, R: Serialize",
+            deserialize = "T: Deserialize<'de>, T::Operator: Deserialize<'de>, R: Deserialize<'de>"
         )
     )
 )]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
-#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, S: JsonSchema"))]
+#[cfg_attr(feature = "json-schema", schemars(bound = "T: JsonSchema, T::Operator: JsonSchema, R: JsonSchema"))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
 #[derive(Default)]
-pub enum TypeExpr<T: Type, S: TypeExprScope = Unscoped> {
+pub enum TypeExpr<T: Type, R: TypeRef = ParamRef> {
     // An atomic "leaf" type.
     Type(T),
 
@@ -142,7 +76,7 @@ pub enum TypeExpr<T: Type, S: TypeExprScope = Unscoped> {
     /// See also the [Type] trait documentation for more information on constructors.
     Constructor {
         inner: T,
-        parameters: BTreeMap<String, TypeExpr<T, S>>,
+        parameters: BTreeMap<String, TypeExpr<T, R>>,
     },
 
     /// Custom defined operator.
@@ -150,44 +84,35 @@ pub enum TypeExpr<T: Type, S: TypeExprScope = Unscoped> {
     /// See also the [Type] trait documentation for more details about operators.
     /// And the [SIUnit](crate::demo_type::SIUnit) type for a reference implementation with operators.
     Operation {
-        a: Box<TypeExpr<T, S>>,
+        a: Box<TypeExpr<T, R>>,
         operator: T::Operator,
-        b: Box<TypeExpr<T, S>>,
+        b: Box<TypeExpr<T, R>>,
     },
 
-    /// References a local type parameter. This is context sensitive because parameters are scoped.
-    ///
-    /// (parameter_id, infer)
-    ///
-    /// if infer is false, this expression will not be used to collect candidates for the parameter.
-    /// In the notation this is written as `!T`.
-    /// @todo: refactor this into `{ id: LocalParamID, infer: bool }`
-    TypeParameter(LocalParamID, bool),
-
-    NodeSignature(Box<NodeSignature<T, S>>),
+    NodeSignature(Box<NodeSignature<T, R>>),
 
     /// A parameter list (a, b, ...c)
-    PortTypes(Box<PortTypes<T, S>>),
+    PortTypes(Box<PortTypes<T, R>>),
 
     /// A type that is either left or right
-    Union(Box<TypeExpr<T, S>>, Box<TypeExpr<T, S>>),
+    Union(Box<TypeExpr<T, R>>, Box<TypeExpr<T, R>>),
 
     /// Describes the key type of the expression.
-    KeyOf(Box<TypeExpr<T, S>>),
+    KeyOf(Box<TypeExpr<T, R>>),
 
     /// Determines the type that `expr` returns when indexed with the type `index`.
     Index {
-        expr: Box<TypeExpr<T, S>>,
-        index: Box<TypeExpr<T, S>>,
+        expr: Box<TypeExpr<T, R>>,
+        index: Box<TypeExpr<T, R>>,
     },
 
     /// A type that is both A & B.
-    Intersection(Box<TypeExpr<T, S>>, Box<TypeExpr<T, S>>),
+    Intersection(Box<TypeExpr<T, R>>, Box<TypeExpr<T, R>>),
 
     /// Represents the following: `t_test` extends `t_test_bound` ? `t_then` : `t_else`
     /// Besides the infer keyword, works almost exactly like conditional types in typescript.
     /// Checkout [this doc](https://www.typescriptlang.org/docs/handbook/2/conditional-types.html) for a good guide on the ts conditionals.
-    Conditional(Box<Conditional<T, S>>),
+    Conditional(Box<Conditional<T, R>>),
 
     /// The universal supertype encompassing all types — and the bane of every linter.
     #[default]
@@ -197,36 +122,44 @@ pub enum TypeExpr<T: Type, S: TypeExprScope = Unscoped> {
     /// All types are supertypes of never.
     Never,
 
-    // Scope can only be infallible or a ScopePortal<T>, ErasedScopePortal or Unscoped.
-    ScopePortal {
-        expr: Box<TypeExpr<T, S>>,
-        scope: S,
-    },
+    /// A reference to something outside of this expression.
+    ///
+    /// What can be referenced is decided by `R`:
+    /// - [NoRef] - nothing. This variant is uninhabited and can never be constructed.
+    /// - [ParamRef] - a type parameter.
+    /// - [ScopedTypeRef] - a type parameter, or a sub expression living in a foreign scope.
+    Ref(R),
 }
 
-pub type ScopedTypeExpr<T> = TypeExpr<T, ScopePortal<T>>;
+/// A [TypeExpr] that may reference type parameters and jump between scopes.
+/// Not needed for most consumer use cases.
+pub type ScopedTypeExpr<T> = TypeExpr<T, ScopedTypeRef<T>>;
 
-pub type UnscopedTypeExpr<T> = TypeExpr<T, Unscoped>;
+/// A [TypeExpr] that may reference type parameters but never jumps between scopes.
+pub type ParameterizedTypeExpr<T> = TypeExpr<T, ParamRef>;
 
-impl<T: Type, S: TypeExprScope> From<NodeSignature<T, S>> for TypeExpr<T, S> {
-    fn from(node_signature: NodeSignature<T, S>) -> Self {
+/// A [TypeExpr] that provably references nothing outside of itself.
+pub type ConcreteTypeExpr<T> = TypeExpr<T, NoRef>;
+
+impl<T: Type, R: TypeRef> From<NodeSignature<T, R>> for TypeExpr<T, R> {
+    fn from(node_signature: NodeSignature<T, R>) -> Self {
         TypeExpr::NodeSignature(Box::new(node_signature))
     }
 }
 
-impl<T: Type, S: TypeExprScope> From<PortTypes<T, S>> for TypeExpr<T, S> {
-    fn from(port_types: PortTypes<T, S>) -> Self {
+impl<T: Type, R: TypeRef> From<PortTypes<T, R>> for TypeExpr<T, R> {
+    fn from(port_types: PortTypes<T, R>) -> Self {
         TypeExpr::PortTypes(Box::new(port_types))
     }
 }
 
-impl<T: Type, S: TypeExprScope> From<Conditional<T, S>> for TypeExpr<T, S> {
-    fn from(conditional: Conditional<T, S>) -> Self {
+impl<T: Type, R: TypeRef> From<Conditional<T, R>> for TypeExpr<T, R> {
+    fn from(conditional: Conditional<T, R>) -> Self {
         TypeExpr::Conditional(Box::new(conditional))
     }
 }
 
-impl<T: Type, S: TypeExprScope> From<T> for TypeExpr<T, S> {
+impl<T: Type, R: TypeRef> From<T> for TypeExpr<T, R> {
     fn from(t: T) -> Self {
         TypeExpr::Type(t)
     }
@@ -242,7 +175,30 @@ pub enum TypeExprValidationError {
     CyclicReference,
 }
 
-impl<T: Type, S: TypeExprScope> TypeExpr<T, S> {
+impl<T: Type, R: ParamTypeRef> TypeExpr<T, R> {
+    /// Builds a reference to the type parameter `param_id` that participates in inference.
+    pub fn param(param_id: impl Into<LocalParamID>) -> Self {
+        Self::Ref(R::from_param(ParamRef::inferring(param_id)))
+    }
+
+    /// Builds a reference to a type parameter.
+    ///
+    /// If `infer` is false, this expression will not be used to collect candidates for the
+    /// parameter. In the notation this is written as `!T`.
+    pub fn param_with_infer(param_id: impl Into<LocalParamID>, infer: bool) -> Self {
+        Self::Ref(R::from_param(ParamRef::new(param_id, infer)))
+    }
+}
+
+impl<T: Type, R: TypeRef> TypeExpr<T, R> {
+    /// If `self` is a reference to a type parameter, returns it.
+    pub fn as_param(&self) -> Option<&ParamRef> {
+        match self {
+            Self::Ref(r) => r.as_param_ref(),
+            _ => None,
+        }
+    }
+
     pub fn union_with(self, other: Self) -> Self {
         TypeExpr::Union(Box::new(self), Box::new(other))
     }
@@ -275,14 +231,21 @@ impl<T: Type, S: TypeExprScope> TypeExpr<T, S> {
     }
 }
 
-/// Functions that work with both scoped and unscoped [TypeExpr]'s.
-impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
+impl<T: Type> ScopedTypeExpr<T> {
+    /// Wraps `expr` so that it gets read in `scope` instead of the surrounding scope.
+    pub fn scope_portal(expr: ScopedTypeExpr<T>, scope: ScopePointer<T>) -> Self {
+        Self::Ref(ScopedTypeRef::scoped_expr(expr, scope))
+    }
+}
+
+/// Functions that work with any [TypeExpr] whose references can be resolved against a scope.
+impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
     /// Returns the parameters of the TypeExpr if it has any.
     /// Currently only NodeSignatures have type parameters
     #[allow(clippy::type_complexity)]
     pub fn extract_generic_parameters<'a>(
         &'a self,
-    ) -> (Cow<'a, Self>, Option<&'a BTreeMap<LocalParamID, TypeParameter<T, S>>>) {
+    ) -> (Cow<'a, Self>, Option<&'a BTreeMap<LocalParamID, TypeParameter<T, R>>>) {
         match self {
             Self::NodeSignature(sig) if !sig.parameters.is_empty() => (
                 Cow::Owned(TypeExpr::NodeSignature(Box::new(NodeSignature {
@@ -310,9 +273,10 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
                 let (intersection, scope) = TypeExpr::intersection(a, b, scope, scope)?;
                 intersection.is_never(&scope)
             }
+            // Unknown as long as the operands aren't fully resolved.
             Self::Operation { a, b, operator } => {
-                let a = a.normalize(scope);
-                let b = b.normalize(scope);
+                let a = a.normalize_concrete(scope)?;
+                let b = b.normalize_concrete(scope)?;
                 T::operation(&a, operator, &b).is_never(scope)
             }
             Self::NodeSignature(_) => Some(false),
@@ -323,24 +287,25 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
                 key.is_never(&key_scope)
             }
             Self::Conditional(conditional) => conditional.distribute(scope)?.is_never(scope),
-            Self::TypeParameter(param, _infer) => {
-                let (registered, param_scope) = scope.lookup(param)?;
-                if let Some((inferred, inferred_scope)) = registered.inferred() {
-                    return inferred.is_never(&inferred_scope);
+            Self::Ref(r) => match r.view() {
+                ScopedRefView::Param(ParamRef { param_id, .. }) => {
+                    let (registered, param_scope) = scope.lookup(param_id)?;
+                    if let Some((inferred, inferred_scope)) = registered.inferred() {
+                        return inferred.is_never(&inferred_scope);
+                    }
+                    let (boundary, boundary_scope) = registered.get_boundary(param_scope);
+                    if boundary.is_never(&boundary_scope).unwrap_or(false) {
+                        return Some(true);
+                    }
+                    None
                 }
-                let (boundary, boundary_scope) = registered.get_boundary(param_scope);
-                if boundary.is_never(&boundary_scope).unwrap_or(false) {
-                    return Some(true);
-                }
-                None
-            }
+                ScopedRefView::ScopedExpr { expr, scope } => expr.is_never(scope),
+            },
             // is_never(scope) is okay here because the result of index() must be in the same scope as expr.
             Self::Index { expr, index } => {
                 let (index_type, index_scope) = expr.index(index, scope, scope)?;
                 index_type.is_never(&index_scope)
             }
-
-            Self::ScopePortal { expr, scope } => expr.is_never(&scope.as_scope_portal().portal),
 
             Self::Any => Some(false),
             Self::Never => Some(true),
@@ -362,9 +327,10 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
                 let (intersection, scope) = TypeExpr::intersection(a, b, scope, scope)?;
                 intersection.is_any(&scope)
             }
+            // Unknown as long as the operands aren't fully resolved.
             Self::Operation { a, b, operator } => {
-                let a = a.normalize(scope);
-                let b = b.normalize(scope);
+                let a = a.normalize_concrete(scope)?;
+                let b = b.normalize_concrete(scope)?;
                 T::operation(&a, operator, &b).is_any(scope)
             }
             Self::NodeSignature(_) => Some(false),
@@ -377,12 +343,13 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
 
             Self::Conditional(conditional) => conditional.distribute(scope)?.is_any(scope),
 
-            Self::TypeParameter(param, _infer) => {
-                let (inferred, inferred_scope) = scope.lookup_inferred(param)?;
-                inferred.is_any(&inferred_scope)
-            }
-
-            Self::ScopePortal { expr, scope } => expr.is_any(&scope.as_scope_portal().portal),
+            Self::Ref(r) => match r.view() {
+                ScopedRefView::Param(ParamRef { param_id, .. }) => {
+                    let (inferred, inferred_scope) = scope.lookup_inferred(param_id)?;
+                    inferred.is_any(&inferred_scope)
+                }
+                ScopedRefView::ScopedExpr { expr, scope } => expr.is_any(scope),
+            },
 
             // is_never(scope) is okay here because the result
             // of index() must be in the same scope as expr.
@@ -407,7 +374,7 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
         };
         let mut child_scope = Scope::new_child(scope);
         for (ident, param) in params {
-            child_scope.define(*ident, param.clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone()));
+            child_scope.define(*ident, param.clone().into_scoped());
         }
         (without_params, ScopePointer::new(child_scope))
     }
@@ -417,9 +384,9 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
     /// - `self` without parameters. Removing the parameters is necessary when performing
     ///   inference because if they don't get removed here, they could get inferred again later.
     /// - the inferred scope for `self`
-    pub fn build_inferred_child_scope<'a, S2: AsScopePortal<T>>(
+    pub fn build_inferred_child_scope<'a, R2: AsScopedRef<T>>(
         &'a self,
-        source: &TypeExpr<T, S2>,
+        source: &TypeExpr<T, R2>,
         own_scope: &ScopePointer<T>,
         source_scope: &ScopePointer<T>,
     ) -> (Cow<'a, Self>, ScopePointer<T>) {
@@ -432,7 +399,7 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
 
         let mut own_scope = Scope::new_child(own_scope);
         for (ident, param) in own_params {
-            own_scope.define(*ident, param.clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone()));
+            own_scope.define(*ident, param.clone().into_scoped());
         }
         let own_scope = ScopePointer::new(own_scope);
         for ident in own_params.keys() {
@@ -440,8 +407,8 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
         }
 
         let flows = vec![Flow {
-            source: source.clone().map_scope_portals(&mut |s: S2| s.as_scope_portal().clone()),
-            target: self_without_params.as_ref().clone().map_scope_portals(&mut |s: S| s.as_scope_portal().clone()),
+            source: source.clone().into_scoped(),
+            target: self_without_params.as_ref().clone().into_scoped(),
             source_scope: ScopePointer::clone(source_scope),
             target_scope: ScopePointer::clone(&own_scope),
         }];
@@ -487,16 +454,16 @@ impl<T: Type, S: AsScopePortal<T>> TypeExpr<T, S> {
     }
 }
 
-impl<T: Type> TypeExpr<T, ScopePortal<T>> {
+impl<T: Type> ScopedTypeExpr<T> {
     pub fn validate(&self, scope: &ScopePointer<T>) -> Result<(), TypeExprValidationError> {
         let mut res = Ok(());
         self.traverse(
             scope,
             &mut |expr, scope, _is_tl_union| {
-                if let TypeExpr::TypeParameter(param, _) = expr
-                    && scope.lookup(param).is_none()
+                if let Some(ParamRef { param_id, .. }) = expr.as_param()
+                    && scope.lookup(param_id).is_none()
                 {
-                    res = Err(TypeExprValidationError::UnknownVar(*param));
+                    res = Err(TypeExprValidationError::UnknownVar(*param_id));
                 }
                 // Validate the parameters of every NodeSignature encountered in the
                 // tree, not just `self`'s. Without this, a cyclic param like
@@ -522,11 +489,11 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
         self.traverse(
             &ScopePointer::new_root(),
             &mut |expr, scope, _is_tl_union| {
-                let TypeExpr::TypeParameter(param, _infer) = expr else {
+                let Some(ParamRef { param_id, .. }) = expr.as_param() else {
                     return;
                 };
-                if scope.lookup(param).is_none() {
-                    params.insert(*param);
+                if scope.lookup(param_id).is_none() {
+                    params.insert(*param_id);
                 }
             },
             false,
@@ -541,7 +508,7 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
         self.traverse(
             &dummy_scope,
             &mut |expr, _dummy_scope, _is_tl_union| {
-                contains_generic |= matches!(expr, TypeExpr::TypeParameter(_, _));
+                contains_generic |= expr.as_param().is_some();
             },
             false,
         );
@@ -559,10 +526,10 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
         self.traverse(
             &dummy_scope,
             &mut |expr, scope, _is_tl_union| {
-                let TypeExpr::TypeParameter(param, _infer) = expr else {
+                let Some(ParamRef { param_id, .. }) = expr.as_param() else {
                     return;
                 };
-                if scope.lookup(param).is_none() {
+                if scope.lookup(param_id).is_none() {
                     contains_generic = true;
                 } else {
                     // If look up succeeds, the parameter must have been defined within self.
@@ -580,10 +547,10 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
         self.traverse(
             &dummy_scope,
             &mut |expr, _dummy_scope, _is_tl_union| {
-                let TypeExpr::TypeParameter(expr_param, _infer) = expr else {
+                let Some(ParamRef { param_id, .. }) = expr.as_param() else {
                     return;
                 };
-                if expr_param == needle {
+                if param_id == needle {
                     contains = true;
                 }
             },
@@ -598,10 +565,10 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
         self.traverse(
             scope,
             &mut |expr, traverse_scope, _is_tl_union| {
-                let TypeExpr::TypeParameter(param, _infer) = expr else {
+                let Some(ParamRef { param_id, .. }) = expr.as_param() else {
                     return;
                 };
-                contains_uninferred |= traverse_scope.lookup_inferred(param).is_none();
+                contains_uninferred |= traverse_scope.lookup_inferred(param_id).is_none();
             },
             false,
         );
@@ -619,13 +586,13 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
         self.traverse(
             scope,
             &mut |expr, scope, _is_tl_union| {
-                let TypeExpr::TypeParameter(param, _infer) = expr else {
+                let Some(ParamRef { param_id, .. }) = expr.as_param() else {
                     return;
                 };
-                let Some(var_scope) = scope.lookup_scope(param) else {
+                let Some(var_scope) = scope.lookup_scope(param_id) else {
                     return;
                 };
-                let global_id = GlobalParameterId { scope: var_scope, local_id: *param };
+                let global_id = GlobalParameterId { scope: var_scope, local_id: *param_id };
                 if needle.contains(&global_id) {
                     contains = true;
                 }
@@ -679,7 +646,7 @@ impl<T: Type> TypeExpr<T, ScopePortal<T>> {
     /// - `Some(Cow::Borrowed(port_types))` if `self` is already a `PortTypes` expression.
     /// - `Some(Cow::Owned(port_types))` if `self` is not a `PortTypes` expression but can be normalized to one.
     /// - `None` if `self` is not a `PortTypes` expression and cannot be normalized to one.
-    pub fn get_port_types(&self, scope: &ScopePointer<T>) -> Option<Cow<'_, PortTypes<T, ScopePortal<T>>>> {
+    pub fn get_port_types(&self, scope: &ScopePointer<T>) -> Option<Cow<'_, PortTypes<T, ScopedTypeRef<T>>>> {
         match self {
             Self::PortTypes(port_types) => Some(Cow::Borrowed(port_types.as_ref())),
             other => match other.normalize(scope) {

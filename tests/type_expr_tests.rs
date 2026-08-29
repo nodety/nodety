@@ -1,9 +1,10 @@
 use crate::common::{expr, expr_u, sig};
 use maplit::hashset;
 use nodety::{
-    demo_type::DemoType,
+    NodeSignature, Type,
+    demo_type::{DemoType, SIUnit},
     scope::{LocalParamID, Scope, ScopePointer, type_parameter::TypeParameter},
-    type_expr::{ScopePortal, TypeExpr, subtyping::SupertypeResult},
+    type_expr::{NoRef, ParamRef, ScopedTypeExpr, ScopedTypeRef, TypeExpr, subtyping::SupertypeResult},
 };
 use std::str::FromStr;
 
@@ -165,7 +166,7 @@ fn test_infer_from() {
 
     let (inferred, _inferred_scope) = inferred_scope.lookup_inferred(&LocalParamID(1)).unwrap();
 
-    assert_eq!(TypeExpr::TypeParameter(LocalParamID(0), true), inferred);
+    assert_eq!(TypeExpr::param_with_infer(LocalParamID(0), true), inferred);
 }
 
 #[test]
@@ -238,7 +239,7 @@ fn test_intersection_never_right() {
 fn test_intersection_constructor_and_type_same_inner() {
     let scope = ScopePointer::<DemoType>::new_root();
     let constructor = expr("{a: Integer}");
-    let plain_type: TypeExpr<DemoType, ScopePortal<DemoType>> = TypeExpr::Type(DemoType::Record);
+    let plain_type: TypeExpr<DemoType, ScopedTypeRef<DemoType>> = TypeExpr::Type(DemoType::Record);
     let (result, _) = TypeExpr::intersection(&constructor, &plain_type, &scope, &scope).unwrap();
     assert_eq!(result.normalize(&scope), expr("{a: Integer}"));
 }
@@ -247,7 +248,7 @@ fn test_intersection_constructor_and_type_same_inner() {
 fn test_intersection_type_and_constructor_same_inner() {
     let scope = ScopePointer::<DemoType>::new_root();
     let constructor = expr("{a: Integer}");
-    let plain_type: TypeExpr<DemoType, ScopePortal<DemoType>> = TypeExpr::Type(DemoType::Record);
+    let plain_type: TypeExpr<DemoType, ScopedTypeRef<DemoType>> = TypeExpr::Type(DemoType::Record);
     let (result, _) = TypeExpr::intersection(&plain_type, &constructor, &scope, &scope).unwrap();
     assert_eq!(result.normalize(&scope), expr("{a: Integer}"));
 }
@@ -372,7 +373,7 @@ fn test_normalize_intersection_supertype_narrowing() {
 fn test_normalize_constructor_empty_params_to_type() {
     use maplit::btreemap;
     let scope = ScopePointer::<DemoType>::new_root();
-    let constructor: TypeExpr<DemoType, ScopePortal<DemoType>> =
+    let constructor: TypeExpr<DemoType, ScopedTypeRef<DemoType>> =
         TypeExpr::Constructor { inner: DemoType::Array, parameters: btreemap! {} };
     assert_eq!(constructor.normalize(&scope), TypeExpr::Type(DemoType::Array));
 }
@@ -512,45 +513,44 @@ fn test_try_into_unscoped_complex() {
 
 #[test]
 fn test_conversion_unscoped_to_scoped() {
-    use nodety::type_expr::ScopedTypeExpr;
     let unscoped = expr_u("Integer");
     let scoped: ScopedTypeExpr<DemoType> = unscoped.into();
     assert_eq!(scoped, expr("Integer"));
 }
 
 #[test]
-fn test_conversion_unscoped_to_erased() {
-    use nodety::type_expr::ErasedScopePortal;
-    let unscoped = expr_u("Integer | String");
-    let erased: TypeExpr<DemoType, ErasedScopePortal> = unscoped.into();
-    assert!(matches!(erased, TypeExpr::Union(..)));
+fn test_conversion_scoped_to_unscoped() {
+    let scoped = expr("Array<Integer>");
+    let unscoped: TypeExpr<DemoType, ParamRef> = scoped.try_into_unscoped().unwrap();
+    assert!(matches!(unscoped, TypeExpr::Constructor { .. }));
 }
 
 #[test]
-fn test_conversion_scoped_to_erased() {
-    use nodety::type_expr::ErasedScopePortal;
-    let scoped = expr("Array<Integer>");
-    let erased: TypeExpr<DemoType, ErasedScopePortal> = scoped.into();
-    assert!(matches!(erased, TypeExpr::Constructor { .. }));
+fn test_conversion_unscoped_to_concrete() {
+    let unscoped = expr_u("Integer | String");
+    let concrete: TypeExpr<DemoType, NoRef> = unscoped.try_into_concrete().unwrap();
+    assert!(matches!(concrete, TypeExpr::Union(..)));
+}
+
+/// An expression that references a type parameter can not be represented without references.
+#[test]
+fn test_conversion_to_concrete_fails_with_type_param() {
+    let unscoped = expr_u("T | String");
+    assert!(unscoped.try_into_concrete().is_err());
 }
 
 #[test]
 fn test_node_signature_conversion_unscoped_to_scoped() {
-    use nodety::NodeSignature;
-    use nodety::type_expr::ScopePortal;
-    let sig_u: NodeSignature<DemoType, nodety::type_expr::Unscoped> = NodeSignature::from_str("<T>(T) -> (T)").unwrap();
-    let sig_scoped: NodeSignature<DemoType, ScopePortal<DemoType>> = sig_u.into();
+    let sig_u: NodeSignature<DemoType, ParamRef> = NodeSignature::from_str("<T>(T) -> (T)").unwrap();
+    let sig_scoped: NodeSignature<DemoType, ScopedTypeRef<DemoType>> = sig_u.into();
     assert!(!sig_scoped.parameters.is_empty());
 }
 
 #[test]
-fn test_node_signature_conversion_unscoped_to_erased() {
-    use nodety::NodeSignature;
-    use nodety::type_expr::ErasedScopePortal;
-    let sig_u: NodeSignature<DemoType, nodety::type_expr::Unscoped> =
-        NodeSignature::from_str("(Integer) -> (String)").unwrap();
-    let sig_erased: NodeSignature<DemoType, ErasedScopePortal> = sig_u.into();
-    assert!(matches!(sig_erased.inputs, TypeExpr::PortTypes(..)));
+fn test_node_signature_conversion_unscoped_to_concrete() {
+    let sig_u: NodeSignature<DemoType, ParamRef> = NodeSignature::from_str("(Integer) -> (String)").unwrap();
+    let sig_concrete = sig_u.try_into_concrete().unwrap();
+    assert!(matches!(sig_concrete.inputs, TypeExpr::PortTypes(..)));
 }
 
 // ── TypeExpr utility method tests ───────────────────────────────────────────
@@ -608,7 +608,6 @@ fn test_collect_references_type_params() {
 
 #[test]
 fn test_demo_type_supertype_relations() {
-    use nodety::Type;
     assert!(DemoType::Comparable.supertype_of(&DemoType::Integer));
     assert!(DemoType::Comparable.supertype_of(&DemoType::Float));
     assert!(!DemoType::Comparable.supertype_of(&DemoType::String(None)));
@@ -664,8 +663,6 @@ fn test_demo_type_si_division() {
 
 #[test]
 fn test_demo_type_si_supertype() {
-    use nodety::Type;
-    use nodety::demo_type::SIUnit;
     let si_a = DemoType::SI(SIUnit { s: 1, m: 0, kg: 0, a: 0, k: 0, mol: 0, cd: 0 }, 1.0);
     let si_b = DemoType::SI(SIUnit { s: 1, m: 0, kg: 0, a: 0, k: 0, mol: 0, cd: 0 }, 1.0);
     let si_c = DemoType::SI(SIUnit { s: 2, m: 0, kg: 0, a: 0, k: 0, mol: 0, cd: 0 }, 1.0);

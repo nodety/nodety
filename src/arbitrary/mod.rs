@@ -7,7 +7,7 @@ use crate::{
     demo_type::{DemoOperator, DemoType, SIUnit},
     scope::{LocalParamID, ScopePointer, type_parameter::TypeParameter},
     type_expr::{
-        ScopePortal, Unscoped,
+        ParamRef, ScopedTypeRef,
         conditional::Conditional,
         node_signature::{port_types::PortTypes, type_parameters::TypeParameters, validate_type_parameters},
     },
@@ -66,11 +66,11 @@ impl proptest::arbitrary::Arbitrary for DemoOperator {
     }
 }
 
-impl<T: Type + Arbitrary + 'static> Arbitrary for TypeExpr<T, Unscoped>
+impl<T: Type + Arbitrary + 'static> Arbitrary for TypeExpr<T, ParamRef>
 where
     T::Operator: MaybeArbitraryOperator<T>,
 {
-    type Strategy = BoxedStrategy<TypeExpr<T, Unscoped>>;
+    type Strategy = BoxedStrategy<TypeExpr<T, ParamRef>>;
     type Parameters = ();
 
     fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
@@ -79,7 +79,7 @@ where
             Just(TypeExpr::Never),
             any::<T>().prop_map(TypeExpr::Type),
             // param ids get randomized later when their scope is known
-            any::<bool>().prop_map(|infer| TypeExpr::TypeParameter(LocalParamID(0), infer)),
+            any::<bool>().prop_map(|infer| TypeExpr::param_with_infer(LocalParamID(0), infer)),
         ];
         let without_operation = leaf
             .prop_recursive(
@@ -268,7 +268,7 @@ impl Arbitrary for SIUnit {
 /// Mutates an expression to be valid.
 /// Faster alternative to filtering invalid expressions (But still quite inefficient).
 fn make_expr_valid<T: Type>(expr: TypeExpr<T>) -> TypeExpr<T> {
-    let mut scoped: TypeExpr<T, ScopePortal<T>> = expr.into();
+    let mut scoped: TypeExpr<T, ScopedTypeRef<T>> = expr.into();
     let scope = ScopePointer::new_root();
 
     loop {
@@ -283,14 +283,14 @@ fn make_expr_valid<T: Type>(expr: TypeExpr<T>) -> TypeExpr<T> {
                     sig.parameters.clear();
                     params_cleared = true;
                 }
-                if let TypeExpr::TypeParameter(param_id, _infer) = expr {
-                    if scope.lookup(param_id).is_some() {
+                if let TypeExpr::Ref(ScopedTypeRef::Param(param)) = expr {
+                    if scope.lookup(&param.param_id).is_some() {
                         // Valid, keep
                         return;
                     }
                     let all: Vec<_> = scope.all_defined().map(|(id, _)| id).collect();
-                    if let Some(&picked) = all.get(param_id.0 as usize % all.len().max(1)) {
-                        *param_id = picked;
+                    if let Some(&picked) = all.get(param.param_id.0 as usize % all.len().max(1)) {
+                        param.param_id = picked;
                     } else {
                         // There is no param that it could reference.
                         *expr = TypeExpr::Any;

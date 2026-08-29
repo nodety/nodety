@@ -3,7 +3,7 @@
 //! But it also serves as reference implementation of the Type trait.
 use crate::{
     r#type::Type,
-    type_expr::{ScopePortal, ScopedTypeExpr, TypeExpr},
+    type_expr::{ConcreteTypeExpr, TypeExpr, TypeRef},
 };
 #[cfg(feature = "json-schema")]
 use schemars::JsonSchema;
@@ -117,10 +117,10 @@ impl Type for DemoType {
     }
 
     fn operation(
-        a: &TypeExpr<Self, ScopePortal<Self>>,
+        a: &ConcreteTypeExpr<Self>,
         operator: &DemoOperator,
-        b: &TypeExpr<Self, ScopePortal<Self>>,
-    ) -> ScopedTypeExpr<Self> {
+        b: &ConcreteTypeExpr<Self>,
+    ) -> ConcreteTypeExpr<Self> {
         match (a, operator, b) {
             (
                 TypeExpr::Type(Self::SI(a, a_scale)),
@@ -134,7 +134,7 @@ impl Type for DemoType {
         }
     }
 
-    fn key_type(&self, fields: Option<&BTreeMap<String, ScopedTypeExpr<Self>>>) -> ScopedTypeExpr<Self> {
+    fn key_type<R: TypeRef>(&self, fields: Option<&BTreeMap<String, TypeExpr<Self, R>>>) -> ConcreteTypeExpr<Self> {
         match (self, fields) {
             (Self::Record, Some(fields)) => {
                 let mut keys = fields.keys().cloned().collect::<Vec<String>>();
@@ -159,11 +159,11 @@ impl Type for DemoType {
         }
     }
 
-    fn index(
+    fn index<R: TypeRef>(
         &self,
-        fields: Option<&BTreeMap<String, ScopedTypeExpr<Self>>>,
-        index: &ScopedTypeExpr<Self>,
-    ) -> ScopedTypeExpr<Self> {
+        fields: Option<&BTreeMap<String, TypeExpr<Self, R>>>,
+        index: &ConcreteTypeExpr<Self>,
+    ) -> TypeExpr<Self, R> {
         match (self, fields, index) {
             (Self::Record, Some(fields), index) => {
                 let mut union_str_literals: Vec<Option<&String>> = vec![];
