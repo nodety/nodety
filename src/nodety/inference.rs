@@ -261,13 +261,8 @@ impl<T: Type> Nodety<T> {
         .expect("expected no cycles in parent relations");
 
         for (node_idx, node) in node_references {
-            if scopes.contains_key(&node_idx) {
-                continue;
-            }
             let mut scope = if let Some(parent) = &node.parent {
-                let Some(parent_scope) = scopes.get(parent) else {
-                    continue;
-                };
+                let Some(parent_scope) = scopes.get(parent) else { continue };
                 Scope::new_child(parent_scope)
             } else {
                 Scope::new_root()
@@ -299,33 +294,20 @@ impl<T: Type> Nodety<T> {
         // Collect flows in topological order so that root nodes get inferred first
         let mut topo = Topo::new(&self.program);
         while let Some(node_idx) = topo.next(&self.program) {
-            // dbg!(&self.program[node_idx].default_input_types);
             for edge in self.program.edges_directed(node_idx, Direction::Outgoing) {
                 populated_inputs.insert((edge.target(), edge.weight().target_port));
 
                 let source_node = &self.program[edge.source()];
                 let target_node = &self.program[edge.target()];
 
-                let TypeExpr::PortTypes(source_ports) = &source_node.signature.outputs else {
-                    continue;
-                };
-                let TypeExpr::PortTypes(target_ports) = &target_node.signature.inputs else {
-                    continue;
-                };
+                let TypeExpr::PortTypes(source_ports) = &source_node.signature.outputs else { continue };
+                let TypeExpr::PortTypes(target_ports) = &target_node.signature.inputs else { continue };
 
-                let Some(source_port) = source_ports.get_port_type(edge.weight().source_port) else {
-                    continue;
-                };
-                let Some(target_port) = target_ports.get_port_type(edge.weight().target_port) else {
-                    continue;
-                };
+                let Some(source_port) = source_ports.get_port_type(edge.weight().source_port) else { continue };
+                let Some(target_port) = target_ports.get_port_type(edge.weight().target_port) else { continue };
 
-                let Some(source_scope) = scopes.get(&edge.source()) else {
-                    continue;
-                };
-                let Some(target_scope) = scopes.get(&edge.target()) else {
-                    continue;
-                };
+                let Some(source_scope) = scopes.get(&edge.source()) else { continue };
+                let Some(target_scope) = scopes.get(&edge.target()) else { continue };
 
                 flows.push(FlowWithMetadata {
                     flow: Flow {
@@ -347,19 +329,15 @@ impl<T: Type> Nodety<T> {
         let mut topo = Topo::new(&self.program);
         while let Some(node_idx) = topo.next(&self.program) {
             let node = &self.program[node_idx];
-            for (input_idx, default_type) in &node.signature.default_input_types {
-                if populated_inputs.contains(&(node_idx, *input_idx)) {
+            for (&input_idx, default_type) in &node.signature.default_input_types {
+                if populated_inputs.contains(&(node_idx, input_idx)) {
                     continue;
                 }
-                let TypeExpr::PortTypes(ports) = &node.signature.inputs else {
-                    continue;
-                };
-                let Some(port) = ports.get_port_type(*input_idx) else {
-                    continue;
-                };
-                let Some(scope) = scopes.get(&node_idx) else {
-                    continue;
-                };
+
+                let TypeExpr::PortTypes(ports) = &node.signature.inputs else { continue };
+                let Some(port) = ports.get_port_type(input_idx) else { continue };
+                let Some(scope) = scopes.get(&node_idx) else { continue };
+
                 flows.push(FlowWithMetadata {
                     flow: Flow {
                         source: default_type.clone().into_scoped(),
@@ -367,8 +345,8 @@ impl<T: Type> Nodety<T> {
                         source_scope: ScopePointer::clone(scope),
                         target_scope: ScopePointer::clone(scope),
                     },
-                    source_location: FlowSourceLocation::DefaultType(node_idx, *input_idx),
-                    target_location: FlowTargetLocation { node_idx, input_idx: *input_idx },
+                    source_location: FlowSourceLocation::DefaultType(node_idx, input_idx),
+                    target_location: FlowTargetLocation { node_idx, input_idx },
                 });
             }
         }
