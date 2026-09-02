@@ -3,7 +3,7 @@ use crate::{
     r#type::Type,
     type_expr::{AsScopedRef, ParamRef, ScopedTypeExpr, ScopedTypeRef, TypeExpr, TypeRef},
 };
-use std::{borrow::Cow, collections::HashSet};
+use std::{borrow::Cow, collections::BTreeSet};
 
 #[cfg(feature = "json-schema")]
 use schemars::JsonSchema;
@@ -15,7 +15,7 @@ use tsify::Tsify;
 /// Represents the following: `t_test` extends `t_test_bound` ? `t_then` : `t_else`
 /// Besides the infer keyword, works almost exactly like conditional types in typescript.
 /// Checkout [this doc](https://www.typescriptlang.org/docs/handbook/2/conditional-types.html) for a good guide on the ts conditionals.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(
     feature = "serde",
@@ -36,7 +36,7 @@ pub struct Conditional<T: Type, R: TypeRef> {
     pub t_then: TypeExpr<T, R>,
     pub t_else: TypeExpr<T, R>,
     /// @todo
-    pub infer: HashSet<LocalParamID>,
+    pub infer: BTreeSet<LocalParamID>,
 }
 
 impl<T: Type, R: TypeRef> Conditional<T, R> {
@@ -81,7 +81,7 @@ impl<'a, T: Type> ConditionalDistribution<'a, T> {
             t_test_bound: conditional.t_test_bound.clone(),
             t_then: TypeExpr::scope_portal(conditional.t_then.clone(), ScopePointer::clone(&self.new_then_else_scope)),
             t_else: TypeExpr::scope_portal(conditional.t_else.clone(), self.new_then_else_scope),
-            infer: HashSet::new(),
+            infer: BTreeSet::new(),
         }
     }
 }

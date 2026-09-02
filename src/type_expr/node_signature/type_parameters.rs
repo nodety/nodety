@@ -19,7 +19,7 @@ use tsify::Tsify;
 /// Wrapper for BtreeMap
 ///
 /// Exists so that it can implement traits like [std::str::FromStr]
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(
     feature = "serde",

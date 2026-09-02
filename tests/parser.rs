@@ -12,7 +12,7 @@ use nodety::type_expr::{
     conditional::Conditional,
     node_signature::{NodeSignature, port_types::PortTypes, type_parameters::TypeParameters},
 };
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 mod common;
 
@@ -247,7 +247,7 @@ fn test_conditional() {
             t_test_bound: TypeExpr::Type(DemoType::String(None)),
             t_then: TypeExpr::Type(DemoType::Boolean),
             t_else: TypeExpr::Type(DemoType::Float),
-            infer: HashSet::new(),
+            infer: BTreeSet::new(),
         })),
         expr
     );
@@ -265,7 +265,7 @@ fn test_conditional_union() {
             t_test_bound: TypeExpr::Type(DemoType::String(None)),
             t_then: TypeExpr::Type(DemoType::Boolean),
             t_else: TypeExpr::Type(DemoType::Float),
-            infer: HashSet::new(),
+            infer: BTreeSet::new(),
         })),
         expr
     );

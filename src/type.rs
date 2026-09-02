@@ -1,5 +1,5 @@
 use crate::type_expr::{ConcreteTypeExpr, TypeExpr, TypeRef, node_signature::NodeSignature};
-use std::{collections::BTreeMap, fmt::Debug};
+use std::{collections::BTreeMap, fmt::Debug, hash::Hash};
 
 #[cfg(feature = "json-schema")]
 use schemars::JsonSchema;
@@ -13,7 +13,7 @@ use tsify::Tsify;
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
 #[cfg_attr(feature = "tsify", tsify(type = "never"))]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum NoOperator {
     // Never add a variant here!
 }
@@ -92,7 +92,10 @@ pub enum NoOperator {
 /// A and B will be the intersection of both.
 pub trait Type: Sized + Clone + Debug + PartialEq {
     /// Used for custom operators. If no custom operators are used, set this to [NoOperator].
-    type Operator: PartialEq + Debug + Clone;
+    ///
+    /// [`Eq`] and [`Hash`] are required so that type expressions containing an
+    /// [`Operation`](TypeExpr::Operation) can themselves be hashed and compared for equality.
+    type Operator: PartialEq + Eq + Hash + Debug + Clone;
 
     /// The heart of any type system.
     ///

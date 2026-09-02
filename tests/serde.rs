@@ -27,7 +27,7 @@ pub enum MyTypeWithOperator {
     String,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug, Clone)]
 pub enum MyOperator {
     Multiply,
     Divide,

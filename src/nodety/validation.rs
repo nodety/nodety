@@ -10,7 +10,7 @@ use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::IntoEdgeReferences;
 use petgraph::visit::{EdgeRef, IntoNodeReferences, Topo};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Debug;
 
 #[cfg(feature = "json-schema")]
@@ -309,7 +309,7 @@ impl<T: Type> Nodety<T> {
     /// [`TagMissing`](ValidationErrorKind::TagMissing) error on that edge.
     fn validate_tags(&self) -> Vec<ValidationError<T>> {
         let mut errors = Vec::new();
-        let mut tags_cache: HashMap<NodeIndex, Option<HashSet<u32>>> = HashMap::new();
+        let mut tags_cache: HashMap<NodeIndex, Option<BTreeSet<u32>>> = HashMap::new();
         let mut topo = Topo::new(&self.program);
         while let Some(node_idx) = topo.next(&self.program) {
             let node = &self.program[node_idx];

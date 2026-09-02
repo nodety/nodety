@@ -32,7 +32,7 @@ use nom::{
     sequence::{delimited, pair, separated_pair},
 };
 use nom::{multi::fold_many0, sequence::preceded};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 
 #[cfg(feature = "json-schema")]
@@ -195,7 +195,13 @@ fn parse_type_expr_conditional<T: ParsableType, R: ParamTypeRef>(input: &str) ->
         parse_atomic_type_expr,
     )
         .map(|(t_test, _extends, t_test_bound, _, t_then, _, t_else)| {
-            TypeExpr::Conditional(Box::new(Conditional { t_test, t_test_bound, t_then, t_else, infer: HashSet::new() }))
+            TypeExpr::Conditional(Box::new(Conditional {
+                t_test,
+                t_test_bound,
+                t_then,
+                t_else,
+                infer: BTreeSet::new(),
+            }))
         })
         .parse(input)
 }

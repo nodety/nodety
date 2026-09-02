@@ -47,7 +47,10 @@ pub use to_type_expr::ToTypeExpr;
 ///
 /// Can represent unions, intersections, conditional types, type variables, keyof, index access,
 /// node signatures (function-like types), port types, and more. Generic over [`Type`].
-#[derive(Debug, Clone, PartialEq)]
+///
+/// [`PartialEq`], [`Eq`] and [`Hash`] are structural: `A | B` is not equal to `B | A`.
+/// [`Eq`] and [`Hash`] are available when `T: Eq + Hash`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(
     feature = "serde",

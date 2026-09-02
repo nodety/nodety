@@ -14,7 +14,7 @@ use std::fmt::Debug;
 #[cfg(feature = "tsify")]
 use tsify::Tsify;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(
     feature = "serde",

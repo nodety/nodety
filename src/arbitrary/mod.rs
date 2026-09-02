@@ -14,7 +14,7 @@ use crate::{
 };
 use proptest::collection::btree_map;
 use proptest::prelude::*;
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 #[derive(Clone)]
 pub struct ArbitraryExprParams<T: Type> {
@@ -110,7 +110,7 @@ where
                                 t_test_bound,
                                 t_then,
                                 t_else,
-                                infer: HashSet::new(),
+                                infer: BTreeSet::new(),
                             })),
                         ),
                         any_with::<NodeSignature<T>>(ArbitraryExprParams { expr_strat: element.clone() })
@@ -174,8 +174,8 @@ where
             ports_strategy.clone(),                                // inputs
             ports_strategy.clone(),                                // outputs
             btree_map(0..5usize, params.expr_strat.clone(), 0..3), // default_input_types
-            any::<Option<HashSet<u32>>>(),                         // tags
-            any::<HashSet<u32>>(),                                 // required_tags
+            any::<Option<BTreeSet<u32>>>(),                        // tags
+            any::<BTreeSet<u32>>(),                                // required_tags
         )
             .prop_map(|(parameters, inputs, outputs, default_input_types, tags, required_tags)| NodeSignature {
                 parameters,

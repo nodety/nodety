@@ -14,7 +14,7 @@ use crate::{
 };
 use petgraph::algo::is_cyclic_directed;
 use petgraph::graph::DiGraph;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 #[cfg(feature = "json-schema")]
 use schemars::JsonSchema;
@@ -27,7 +27,7 @@ pub mod candidate;
 pub mod port_types;
 pub mod type_parameters;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(
     feature = "serde",
@@ -73,7 +73,7 @@ pub struct NodeSignature<T: Type, R: TypeRef = ParamRef> {
     ///
     /// `u32` is used instead of `usize` for wasm compatibility (JS has 32-bit
     /// integers).
-    pub tags: Option<HashSet<u32>>,
+    pub tags: Option<BTreeSet<u32>>,
 
     /// Tags this node *requires* from every incoming edge.
     ///
@@ -83,7 +83,7 @@ pub struct NodeSignature<T: Type, R: TypeRef = ParamRef> {
     /// error.
     ///
     /// Defaults to `∅` (no requirements).
-    pub required_tags: HashSet<u32>,
+    pub required_tags: BTreeSet<u32>,
 }
 
 impl<T: Type, R: TypeRef> Default for NodeSignature<T, R> {
@@ -93,21 +93,21 @@ impl<T: Type, R: TypeRef> Default for NodeSignature<T, R> {
             inputs: TypeExpr::PortTypes(Box::new(PortTypes::new())),
             outputs: TypeExpr::PortTypes(Box::new(PortTypes::new())),
             default_input_types: BTreeMap::new(),
-            tags: Some(HashSet::new()),
-            required_tags: HashSet::new(),
+            tags: Some(BTreeSet::new()),
+            required_tags: BTreeSet::new(),
         }
     }
 }
 
 impl<T: Type, R: TypeRef> NodeSignature<T, R> {
     /// Sets the provided tags to `Some(tags)`. See [`NodeSignature::tags`].
-    pub fn with_tags(self, tags: HashSet<u32>) -> Self {
-        Self { tags: Some(tags), ..self }
+    pub fn with_tags(self, tags: impl IntoIterator<Item = u32>) -> Self {
+        Self { tags: Some(tags.into_iter().collect()), ..self }
     }
 
     /// Sets the required tags. See [`NodeSignature::required_tags`].
-    pub fn with_required_tags(self, required_tags: HashSet<u32>) -> Self {
-        Self { required_tags, ..self }
+    pub fn with_required_tags(self, required_tags: impl IntoIterator<Item = u32>) -> Self {
+        Self { required_tags: required_tags.into_iter().collect(), ..self }
     }
 
     pub fn with_default_input_types(self, default_input_types: BTreeMap<usize, TypeExpr<T, R>>) -> Self {

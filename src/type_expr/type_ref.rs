@@ -66,7 +66,7 @@ pub enum ScopedRefView<'a, T: Type> {
 ///
 /// A `TypeExpr<T, NoRef>` provably contains neither type parameters nor scope portals, so it can
 /// be understood without a [Scope](crate::scope::Scope).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
@@ -103,7 +103,7 @@ impl ParamRef {
 ///
 /// Unifies "references a type parameter" and "this sub expression is to be read in a different
 /// scope" — the two things that make a type expression context sensitive.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ScopedTypeRef<T: Type> {
     Param(ParamRef),
     /// Represents an expression inside a foreign scope.
@@ -120,7 +120,7 @@ impl<T: Type> ScopedTypeRef<T> {
 }
 
 /// A scope portal that used to be there but got removed in order to be serializable
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(
     feature = "serde",

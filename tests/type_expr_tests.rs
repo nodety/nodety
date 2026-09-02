@@ -1,5 +1,5 @@
 use crate::common::{expr, expr_u, sig};
-use maplit::hashset;
+use maplit::btreeset;
 use nodety::{
     NodeSignature, Type,
     demo_type::{DemoType, SIUnit},
@@ -27,7 +27,7 @@ pub fn test_mother_of_signatures() {
     mother_of_signatures.tags = None;
 
     let mut child = sig("<T>(T, String) -> (Integer, T)");
-    child.tags = Some(hashset! {123});
+    child.tags = Some(btreeset! {123});
 
     assert!(mother_of_signatures.clone().supertype_of(child).is_supertype());
 

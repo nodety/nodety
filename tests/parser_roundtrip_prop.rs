@@ -7,7 +7,7 @@ use nodety::{
 use nom::{IResult, Parser, bytes::complete::tag, combinator::value};
 use proptest::prelude::*;
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     fmt,
     str::FromStr,
 };
@@ -77,8 +77,8 @@ fn normalize_simple(expr: TypeExpr<SimpleType>) -> TypeExpr<SimpleType> {
                 *expr = TypeExpr::Type(inner.clone());
             }
             TypeExpr::NodeSignature(sig) => {
-                sig.tags = Some(HashSet::new());
-                sig.required_tags = HashSet::new();
+                sig.tags = Some(BTreeSet::new());
+                sig.required_tags = BTreeSet::new();
                 sig.default_input_types.clear();
                 for field in [&mut sig.inputs, &mut sig.outputs] {
                     if !matches!(field, TypeExpr::PortTypes(_) | TypeExpr::Any | TypeExpr::Never) {
