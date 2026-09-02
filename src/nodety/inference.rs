@@ -304,15 +304,23 @@ impl<T: Type> Nodety<T> {
                 let TypeExpr::PortTypes(target_ports) = &target_node.signature.inputs else { continue };
 
                 let Some(source_port) = source_ports.get_port_type(edge.weight().source_port) else { continue };
+                let source_port = source_port.clone().into_scoped();
+
                 let Some(target_port) = target_ports.get_port_type(edge.weight().target_port) else { continue };
+                let target_port = target_port.clone().into_scoped();
+
+                if !source_port.contains_type_param() && !target_port.contains_type_param() {
+                    // If neither of these contains a type param, they won't take part in inference.
+                    continue;
+                }
 
                 let Some(source_scope) = scopes.get(&edge.source()) else { continue };
                 let Some(target_scope) = scopes.get(&edge.target()) else { continue };
 
                 flows.push(FlowWithMetadata {
                     flow: Flow {
-                        source: source_port.clone().into_scoped(),
-                        target: target_port.clone().into_scoped(),
+                        source: source_port,
+                        target: target_port,
                         source_scope: ScopePointer::clone(source_scope),
                         target_scope: ScopePointer::clone(target_scope),
                     },

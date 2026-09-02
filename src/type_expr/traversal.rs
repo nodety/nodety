@@ -18,6 +18,8 @@ impl<T: Type, R: TypeRef> TypeExpr<T, R> {
     }
 }
 
+// Traversal functions cannot be generic over R because the visitor functions have to always accept
+// ScopedTypeExprs for walking inferred types.
 impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
     /// Calls walker for all types that are a "top level" union in self. Check out TypeExpr::traverse_mut for more infos
     /// Always visits
