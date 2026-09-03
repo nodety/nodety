@@ -3,13 +3,12 @@
 //! But it also serves as reference implementation of the Type trait.
 use crate::{
     r#type::Type,
-    type_expr::{ConcreteTypeExpr, TypeExpr, TypeRef},
+    type_expr::{ConcreteTypeExpr, ConstructorParams, TypeExpr, TypeRef},
 };
 #[cfg(feature = "json-schema")]
 use schemars::JsonSchema;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 #[cfg(feature = "tsify")]
 use tsify::Tsify;
 
@@ -134,7 +133,7 @@ impl Type for DemoType {
         }
     }
 
-    fn key_type<R: TypeRef>(&self, fields: Option<&BTreeMap<String, TypeExpr<Self, R>>>) -> ConcreteTypeExpr<Self> {
+    fn key_type<R: TypeRef>(&self, fields: Option<&ConstructorParams<Self, R>>) -> ConcreteTypeExpr<Self> {
         match (self, fields) {
             (Self::Record, Some(fields)) => {
                 let mut keys = fields.keys().cloned().collect::<Vec<String>>();
@@ -161,7 +160,7 @@ impl Type for DemoType {
 
     fn index<R: TypeRef>(
         &self,
-        fields: Option<&BTreeMap<String, TypeExpr<Self, R>>>,
+        fields: Option<&ConstructorParams<Self, R>>,
         index: &ConcreteTypeExpr<Self>,
     ) -> TypeExpr<Self, R> {
         match (self, fields, index) {
@@ -193,7 +192,7 @@ impl Type for DemoType {
                 if !matches!(index, TypeExpr::Type(Self::Integer)) {
                     return TypeExpr::Type(Self::Unit);
                 }
-                let Some(t) = fields.get(&"elements_type".to_string()) else {
+                let Some(t) = fields.get("elements_type") else {
                     return TypeExpr::Type(Self::Unit);
                 };
                 t.clone()

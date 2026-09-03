@@ -28,6 +28,9 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "tsify")]
 use tsify::Tsify;
 
+mod constructor_params;
+pub use constructor_params::ConstructorParams;
+
 pub mod candidate_collection;
 pub mod conditional;
 pub mod conversions;
@@ -79,7 +82,8 @@ pub enum TypeExpr<T: Type, R: TypeRef = ParamRef> {
     /// See also the [Type] trait documentation for more information on constructors.
     Constructor {
         inner: T,
-        parameters: BTreeMap<String, TypeExpr<T, R>>,
+        /// Type arguments / record fields. Iterates in insertion order; equality ignores order.
+        parameters: ConstructorParams<T, R>,
     },
 
     /// Custom defined operator.

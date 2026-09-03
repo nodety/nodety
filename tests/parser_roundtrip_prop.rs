@@ -1,16 +1,12 @@
 use nodety::{
-    NoOperator, Type, TypeExpr,
+    ConstructorParams, NoOperator, Type, TypeExpr,
     notation::{format::FormattableType, parse::ParsableType},
     scope::ScopePointer,
     type_expr::{ParamTypeRef, ScopedTypeRef, UnscopedRef, node_signature::port_types::PortTypes},
 };
 use nom::{IResult, Parser, bytes::complete::tag, combinator::value};
 use proptest::prelude::*;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt,
-    str::FromStr,
-};
+use std::{collections::BTreeSet, fmt, str::FromStr};
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(1000))]
@@ -36,7 +32,7 @@ impl Type for SimpleType {
 impl FormattableType for SimpleType {
     fn format_type<R: UnscopedRef>(
         &self,
-        _parameters: Option<&BTreeMap<String, TypeExpr<Self, R>>>,
+        _parameters: Option<&ConstructorParams<Self, R>>,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {
         match self {

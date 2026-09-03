@@ -4,7 +4,7 @@ use crate::{
     scope::{LocalParamID, type_parameter::TypeParameter},
     r#type::Type,
     type_expr::{
-        ParamRef, TypeExpr, UnscopedRef,
+        ConstructorParams, ParamRef, TypeExpr, UnscopedRef,
         node_signature::{NodeSignature, type_parameters::TypeParameters},
     },
 };
@@ -21,7 +21,7 @@ pub trait FormattableType: Type {
     /// [TypeExpr::format_type].
     fn format_type<R: UnscopedRef>(
         &self,
-        parameters: Option<&BTreeMap<String, TypeExpr<Self, R>>>,
+        parameters: Option<&ConstructorParams<Self, R>>,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result;
 
@@ -103,7 +103,7 @@ impl<T: FormattableType, R: UnscopedRef> fmt::Display for TypeParameters<T, R> {
 impl FormattableType for DemoType {
     fn format_type<R: UnscopedRef>(
         &self,
-        parameters: Option<&BTreeMap<String, TypeExpr<Self, R>>>,
+        parameters: Option<&ConstructorParams<Self, R>>,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {
         match self {

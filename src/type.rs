@@ -1,5 +1,5 @@
-use crate::type_expr::{ConcreteTypeExpr, TypeExpr, TypeRef, node_signature::NodeSignature};
-use std::{collections::BTreeMap, fmt::Debug, hash::Hash};
+use crate::type_expr::{ConcreteTypeExpr, ConstructorParams, TypeExpr, TypeRef, node_signature::NodeSignature};
+use std::{fmt::Debug, hash::Hash};
 
 #[cfg(feature = "json-schema")]
 use schemars::JsonSchema;
@@ -27,10 +27,11 @@ pub enum NoOperator {
 /// But you will probably want to make your types generic to express things like `Map<K, V>`
 /// where Array is one of your types. To represent this, type expressions have [Constructor][TypeExpr::Constructor]s.
 /// A constructor contains a Type and a map of parameters which are themselves type expressions.
+/// Constructor parameters iterate in insertion order (so records format as they were written)
+/// but compare equal regardless of field order.
 /// You can use them to represent two scenarios:
 /// ### Generic parameters
 /// ```
-/// # use maplit::btreemap;
 /// # use nodety::{Type, TypeExpr, NoOperator};
 /// // Let's say your type structure looks something like this:
 /// #[derive(Clone, Debug, PartialEq)]
@@ -47,17 +48,18 @@ pub enum NoOperator {
 /// // Then you can represent the type `Map<Integer, String>` as follows:
 /// let t_map = TypeExpr::<MyType>::Constructor {
 ///   inner: MyType::Map,
-///   parameters: btreemap! {
-///     "K".into() => TypeExpr::Type(MyType::Integer),
-///     "V".into() => TypeExpr::Type(MyType::String),
-///   },
+///   parameters: [
+///     ("K".into(), TypeExpr::Type(MyType::Integer)),
+///     ("V".into(), TypeExpr::Type(MyType::String)),
+///   ]
+///   .into_iter()
+///   .collect(),
 /// };
 /// ```
 /// ### Records / Objects
 /// You can represent records / objects in the same way.
 /// Let's say you want to represent the type `{ property_a: Integer, property_b: String, property_c: String }`.
 /// ```
-/// # use maplit::btreemap;
 /// # use nodety::{Type, TypeExpr, NoOperator};
 /// #[derive(Clone, Debug, PartialEq)]
 /// pub enum MyType {
@@ -72,11 +74,13 @@ pub enum NoOperator {
 ///
 /// let t_map = TypeExpr::<MyType>::Constructor {
 ///   inner: MyType::Record,
-///   parameters: btreemap! {
-///     "property_a".into() => TypeExpr::Type(MyType::Integer),
-///     "property_b".into() => TypeExpr::Type(MyType::String),
-///     "property_c".into() => TypeExpr::Type(MyType::String),
-///   },
+///   parameters: [
+///     ("property_a".into(), TypeExpr::Type(MyType::Integer)),
+///     ("property_b".into(), TypeExpr::Type(MyType::String)),
+///     ("property_c".into(), TypeExpr::Type(MyType::String)),
+///   ]
+///   .into_iter()
+///   .collect(),
 /// };
 /// ```
 ///
@@ -143,7 +147,7 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
     ///
     /// # Returns
     /// The key type of `self` or [TypeExpr::Never] if it has no key type.
-    fn key_type<R: TypeRef>(&self, _fields: Option<&BTreeMap<String, TypeExpr<Self, R>>>) -> ConcreteTypeExpr<Self> {
+    fn key_type<R: TypeRef>(&self, _fields: Option<&ConstructorParams<Self, R>>) -> ConcreteTypeExpr<Self> {
         TypeExpr::Never
     }
 
@@ -163,7 +167,7 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
     /// reference of its own.
     fn index<R: TypeRef>(
         &self,
-        _fields: Option<&BTreeMap<String, TypeExpr<Self, R>>>,
+        _fields: Option<&ConstructorParams<Self, R>>,
         _index: &ConcreteTypeExpr<Self>,
     ) -> TypeExpr<Self, R> {
         TypeExpr::Any

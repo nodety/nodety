@@ -15,7 +15,7 @@ use crate::{
     scope::{LocalParamID, Scope, type_parameter::TypeParameter},
     r#type::Type,
     type_expr::{
-        ParamRef, ParamTypeRef, ScopedTypeRef, TypeExpr,
+        ConstructorParams, ParamRef, ParamTypeRef, ScopedTypeRef, TypeExpr,
         conditional::Conditional,
         node_signature::{NodeSignature, port_types::PortTypes, type_parameters::TypeParameters},
     },
@@ -365,7 +365,7 @@ fn parse_array<R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<DemoType,
         .map(|(_, elements_type)| match elements_type {
             Some((_, elements_type, _)) => TypeExpr::Constructor {
                 inner: DemoType::Array,
-                parameters: BTreeMap::from([("elements_type".into(), elements_type)]),
+                parameters: [("elements_type".into(), elements_type)].into(),
             },
             None => TypeExpr::Type(DemoType::Array),
         })
@@ -380,7 +380,7 @@ fn parse_identifier(input: &str) -> IResult<&str, &str> {
     recognize(pair(alt((alpha1, tag("_"))), many0(alt((alphanumeric1, tag("_"), tag("-")))))).parse(input)
 }
 
-pub fn parse_record<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, BTreeMap<String, TypeExpr<T, R>>> {
+pub fn parse_record<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, ConstructorParams<T, R>> {
     map(
         delimited(
             ws0(char('{')),

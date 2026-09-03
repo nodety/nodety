@@ -75,6 +75,8 @@ fn test_format_array_with_param() {
 fn test_format_record() {
     assert_eq!("{a: Integer}", format!("{}", expr_u("{a: Integer}")));
     assert_eq!("{a: Integer, b: String}", format!("{}", expr_u("{a: Integer, b: String}")));
+    assert_eq!("{z: Integer, a: String}", format!("{}", expr_u("{z: Integer, a: String}")));
+    assert_eq!(expr_u("{z: Integer, a: String}"), expr_u("{a: String, z: Integer}"));
 }
 
 #[test]

@@ -1,5 +1,7 @@
 # Todos
 
+- Functions that take `Option<ConstructorParams>` should instead take `ConstructorParams` where None is `ConstructorParams::default()`
+- Remove petgraph dependency
 - Evaluate if keyof T and T[K] can be represented as operators
 - Mapped types
 - Build the official website with showcase

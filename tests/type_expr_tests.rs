@@ -371,10 +371,9 @@ fn test_normalize_intersection_supertype_narrowing() {
 
 #[test]
 fn test_normalize_constructor_empty_params_to_type() {
-    use maplit::btreemap;
     let scope = ScopePointer::<DemoType>::new_root();
     let constructor: TypeExpr<DemoType, ScopedTypeRef<DemoType>> =
-        TypeExpr::Constructor { inner: DemoType::Array, parameters: btreemap! {} };
+        TypeExpr::Constructor { inner: DemoType::Array, parameters: Default::default() };
     assert_eq!(constructor.normalize(&scope), TypeExpr::Type(DemoType::Array));
 }
 

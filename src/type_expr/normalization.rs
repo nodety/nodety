@@ -1,9 +1,11 @@
 use crate::{
     scope::ScopePointer,
     r#type::Type,
-    type_expr::{AsScopedRef, ScopedRefView, ScopedTypeExpr, ScopedTypeRef, TypeExpr, conditional::Conditional},
+    type_expr::{
+        AsScopedRef, ConstructorParams, ScopedRefView, ScopedTypeExpr, ScopedTypeRef, TypeExpr,
+        conditional::Conditional,
+    },
 };
-use std::collections::BTreeMap;
 
 impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
     /// Same as [normalize](Self::normalize) but for types that aren't context sensitive.
@@ -110,7 +112,7 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 if parameters.is_empty() {
                     return TypeExpr::Type(inner.clone());
                 }
-                let mut normalized_params: BTreeMap<String, ScopedTypeExpr<T>> = BTreeMap::new();
+                let mut normalized_params = ConstructorParams::new();
                 for (ident, param) in parameters {
                     normalized_params.insert(ident.clone(), param.normalize(&scope));
                 }

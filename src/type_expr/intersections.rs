@@ -1,9 +1,8 @@
 use crate::{
     scope::ScopePointer,
     r#type::Type,
-    type_expr::{AsScopedRef, ScopedRefView, ScopedTypeExpr, TypeExpr},
+    type_expr::{AsScopedRef, ConstructorParams, ScopedRefView, ScopedTypeExpr, TypeExpr},
 };
-use std::collections::BTreeMap;
 
 impl<T: Type, Ra: AsScopedRef<T>> TypeExpr<T, Ra> {
     /// # Returns
@@ -106,7 +105,7 @@ impl<T: Type, Ra: AsScopedRef<T>> TypeExpr<T, Ra> {
                 TypeExpr::Constructor { inner: inner_a, parameters: parameters_a },
                 TypeExpr::Constructor { inner: inner_b, parameters: parameters_b },
             ) if inner_a == inner_b => {
-                let mut intersected_params = BTreeMap::new();
+                let mut intersected_params = ConstructorParams::new();
                 for ident in parameters_a.keys().chain(parameters_b.keys()) {
                     if intersected_params.contains_key(ident) {
                         continue;

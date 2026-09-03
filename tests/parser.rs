@@ -12,7 +12,7 @@ use nodety::type_expr::{
     conditional::Conditional,
     node_signature::{NodeSignature, port_types::PortTypes, type_parameters::TypeParameters},
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 mod common;
 
@@ -73,7 +73,7 @@ fn test_node_signature_primitive_arr() {
         NodeSignature {
             inputs: TypeExpr::PortTypes(Box::new(PortTypes::from_ports(vec![TypeExpr::Constructor {
                 inner: DemoType::Array,
-                parameters: btreemap! {"elements_type".to_string() => TypeExpr::Type(DemoType::Integer)}
+                parameters: btreemap! {"elements_type".to_string() => TypeExpr::Type(DemoType::Integer)}.into()
             }]))),
             ..Default::default()
         },
@@ -89,7 +89,9 @@ fn test_generic_array() {
             parameters: parse_type_parameter_declarations::<DemoType, ParamRef>("<T>").unwrap().1,
             inputs: TypeExpr::PortTypes(Box::new(PortTypes::from_ports(vec![TypeExpr::Constructor {
                 inner: DemoType::Array,
-                parameters: btreemap! {"elements_type".into() => TypeExpr::param_with_infer(LocalParamID::from("T"), true)}
+                parameters: [("elements_type".into(), TypeExpr::param_with_infer(LocalParamID::from("T"), true))]
+                    .into_iter()
+                    .collect()
             }]))),
             ..Default::default()
         }),
@@ -183,7 +185,7 @@ fn test_index() {
     assert_eq!(
         NodeSignature {
             inputs: TypeExpr::PortTypes(Box::new(PortTypes::from_ports(vec![TypeExpr::Index {
-                expr: Box::new(TypeExpr::Constructor { inner: DemoType::Record, parameters: BTreeMap::new() }),
+                expr: Box::new(TypeExpr::Constructor { inner: DemoType::Record, parameters: Default::default() }),
                 index: Box::new(TypeExpr::Type(DemoType::String(Some("a".into()))))
             }]))),
             ..Default::default()
