@@ -13,6 +13,7 @@ use nodety::type_expr::{
     node_signature::{NodeSignature, port_types::PortTypes, type_parameters::TypeParameters},
 };
 use std::collections::BTreeSet;
+use std::str::FromStr;
 
 mod common;
 
@@ -196,7 +197,7 @@ fn test_index() {
 
 #[test]
 fn test_index_chained() {
-    let parsed = TypeExpr::<DemoType, ParamRef>::try_parse("Integer['a']['b']").unwrap();
+    let parsed: TypeExpr<DemoType, ParamRef> = "Integer['a']['b']".parse().unwrap();
 
     // Nests left to right: `(Integer['a'])['b']`.
     let expected = TypeExpr::Index {
@@ -210,7 +211,7 @@ fn test_index_chained() {
     assert_eq!(expected, parsed);
 
     // The formatter parenthesises the inner access, which reparses to the same tree.
-    assert_eq!(parsed, TypeExpr::<DemoType, ParamRef>::try_parse(&format!("{parsed}")).unwrap());
+    assert_eq!(parsed, (&format!("{parsed}")).parse().unwrap());
 }
 
 #[test]
@@ -312,20 +313,20 @@ fn test_parse_si_unit() {
 
 #[test]
 fn test_try_parse_type_expr() {
-    let expr = TypeExpr::<DemoType, ParamRef>::try_parse("Integer | String").unwrap();
+    let expr: TypeExpr<DemoType, ParamRef> = "Integer | String".parse().unwrap();
     assert_eq!(expr, parse_type_expr::<DemoType, ParamRef>("Integer | String").unwrap().1);
 
     let expr: TypeExpr<DemoType> = "Boolean".parse().unwrap();
     assert_eq!(expr, TypeExpr::Type(DemoType::Boolean));
 
-    let err = TypeExpr::<DemoType, ParamRef>::try_parse("Integer |").unwrap_err();
+    let err = "Integer |".parse::<TypeExpr<DemoType, ParamRef>>().unwrap_err();
     assert!(!err.remaining.is_empty());
     assert!(err.offset > 0);
 }
 
 #[test]
 fn test_try_parse_node_signature() {
-    let sig = NodeSignature::<DemoType, ParamRef>::try_parse("() -> ()").unwrap();
+    let sig: NodeSignature<DemoType, ParamRef> = "() -> ()".parse().unwrap();
     assert_eq!(sig, NodeSignature::default());
 
     let sig: NodeSignature<DemoType, ParamRef> = "(Integer) -> (String)".parse().unwrap();
@@ -334,13 +335,13 @@ fn test_try_parse_node_signature() {
         TypeExpr::PortTypes(Box::new(PortTypes::from_ports(vec![TypeExpr::Type(DemoType::Integer)])))
     );
 
-    let err = NodeSignature::<DemoType, ParamRef>::try_parse("() -> () extra").unwrap_err();
+    let err = NodeSignature::<DemoType, ParamRef>::from_str("() -> () extra").unwrap_err();
     assert!(err.remaining.contains("extra"));
 }
 
 #[test]
 fn test_parse_error_display() {
-    let result = TypeExpr::<DemoType>::try_parse("??? invalid");
+    let result: Result<TypeExpr<DemoType>, _> = "??? invalid".parse();
     assert!(result.is_err());
     let display = format!("{}", result.unwrap_err());
     assert!(display.contains("parse error"));
@@ -348,12 +349,12 @@ fn test_parse_error_display() {
 
 #[test]
 fn test_parse_remaining_input_error() {
-    assert!(TypeExpr::<DemoType>::try_parse("Integer GARBAGE").is_err());
+    assert!("Integer GARBAGE".parse::<TypeExpr<DemoType>>().is_err());
 }
 
 #[test]
 fn test_parse_node_signature_remaining_input_error() {
-    assert!(NodeSignature::<DemoType>::try_parse("() -> () GARBAGE").is_err());
+    assert!("() -> () GARBAGE".parse::<NodeSignature<DemoType>>().is_err());
 }
 
 #[test]
@@ -364,7 +365,7 @@ fn test_parse_scope_from_str() {
 
 #[test]
 fn test_parse_scope_remaining_error() {
-    assert!(Scope::<DemoType>::try_parse("<T> GARBAGE").is_err());
+    assert!("<T> GARBAGE".parse::<Scope<DemoType>>().is_err());
 }
 
 #[test]

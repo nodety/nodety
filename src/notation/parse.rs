@@ -438,39 +438,18 @@ pub fn parse_quoted_string(input: &str) -> IResult<&str, String> {
     .parse(input)
 }
 
-/// Parses type hints (e.g. `T = Integer, U = String`). Used internally by [`TypeHints::try_parse`].
+/// Parses type hints (e.g. `T = Integer, U = String`). Used internally by [`TypeHints::from_str`].
 fn parse_type_hints<T: ParsableType, R: ParamTypeRef>(s: &str) -> IResult<&str, TypeHints<T, R>> {
     separated_list0(ws0(char(',')), (parse_type_parameter, ws0(char('=')), parse_type_expr))
         .map(|items| items.into_iter().map(|((param, _infer), _, hint)| (param, hint)).collect::<TypeHints<T, R>>())
         .parse(s)
 }
 
-impl<T: ParsableType, R: ParamTypeRef> NodeSignature<T, R> {
-    /// Parse the entire input as a node signature. Returns an error if parsing fails
-    /// or if any input remains after parsing.
-    pub fn try_parse(input: &str) -> Result<Self, ParseError> {
-        match parse_node_signature(input) {
-            Ok((rest, sig)) => {
-                if rest.trim().is_empty() {
-                    Ok(sig)
-                } else {
-                    Err(ParseError {
-                        message: format!("unexpected remaining input: {:?}", rest),
-                        remaining: rest.to_string(),
-                        offset: input.len() - rest.len(),
-                    })
-                }
-            }
-            Err(e) => Err(ParseError::from_nom_err(input, e)),
-        }
-    }
-}
+impl<T: ParsableType, R: ParamTypeRef> FromStr for TypeExpr<T, R> {
+    type Err = ParseError;
 
-impl<T: ParsableType, R: ParamTypeRef> TypeExpr<T, R> {
-    /// Parse the entire input as a type expression. Returns an error if parsing fails
-    /// or if any input remains after parsing.
-    pub fn try_parse(input: &str) -> Result<Self, ParseError> {
-        match parse_type_expr(input) {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_type_expr(s) {
             Ok((rest, expr)) => {
                 if rest.trim().is_empty() {
                     Ok(expr)
@@ -478,20 +457,41 @@ impl<T: ParsableType, R: ParamTypeRef> TypeExpr<T, R> {
                     Err(ParseError {
                         message: format!("unexpected remaining input: {:?}", rest),
                         remaining: rest.to_string(),
-                        offset: input.len() - rest.len(),
+                        offset: s.len() - rest.len(),
                     })
                 }
             }
-            Err(e) => Err(ParseError::from_nom_err(input, e)),
+            Err(e) => Err(ParseError::from_nom_err(s, e)),
         }
     }
 }
 
-impl<T: ParsableType> Scope<T> {
-    /// Parse the entire input as scope. Returns an error if parsing fails
-    /// or if any input remains after parsing.
-    pub fn try_parse(input: &str) -> Result<Self, ParseError> {
-        match parse_type_parameter_declarations::<T, ParamRef>(input) {
+impl<T: ParsableType, R: ParamTypeRef> FromStr for NodeSignature<T, R> {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_node_signature(s) {
+            Ok((rest, sig)) => {
+                if rest.trim().is_empty() {
+                    Ok(sig)
+                } else {
+                    Err(ParseError {
+                        message: format!("unexpected remaining input: {:?}", rest),
+                        remaining: rest.to_string(),
+                        offset: s.len() - rest.len(),
+                    })
+                }
+            }
+            Err(e) => Err(ParseError::from_nom_err(s, e)),
+        }
+    }
+}
+
+impl<T: ParsableType> FromStr for Scope<T> {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parse_type_parameter_declarations::<T, ParamRef>(s) {
             Ok((rest, params)) => {
                 if rest.trim().is_empty() {
                     let mut scope = Scope::new_root();
@@ -506,44 +506,22 @@ impl<T: ParsableType> Scope<T> {
                     Err(ParseError {
                         message: format!("unexpected remaining input: {:?}", rest),
                         remaining: rest.to_string(),
-                        offset: input.len() - rest.len(),
+                        offset: s.len() - rest.len(),
                     })
                 }
             }
-            Err(e) => Err(ParseError::from_nom_err(input, e)),
+            Err(e) => Err(ParseError::from_nom_err(s, e)),
         }
     }
 }
 
-impl<T: ParsableType, R: ParamTypeRef> FromStr for TypeExpr<T, R> {
+/// Parse the entire input as type parameters. Returns an error if parsing fails
+/// or if any input remains after parsing.
+impl<T: ParsableType, R: ParamTypeRef> FromStr for TypeParameters<T, R> {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        TypeExpr::try_parse(s)
-    }
-}
-
-impl<T: ParsableType, R: ParamTypeRef> FromStr for NodeSignature<T, R> {
-    type Err = ParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        NodeSignature::try_parse(s)
-    }
-}
-
-impl<T: ParsableType> FromStr for Scope<T> {
-    type Err = ParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Scope::try_parse(s)
-    }
-}
-
-impl<T: ParsableType, R: ParamTypeRef> TypeParameters<T, R> {
-    /// Parse the entire input as type parameters. Returns an error if parsing fails
-    /// or if any input remains after parsing.
-    pub fn try_parse(input: &str) -> Result<Self, ParseError> {
-        match parse_type_parameter_declarations::<T, R>(input) {
+        match parse_type_parameter_declarations::<T, R>(s) {
             Ok((rest, params)) => {
                 if rest.trim().is_empty() {
                     Ok(params)
@@ -551,40 +529,11 @@ impl<T: ParsableType, R: ParamTypeRef> TypeParameters<T, R> {
                     Err(ParseError {
                         message: format!("unexpected remaining input: {:?}", rest),
                         remaining: rest.to_string(),
-                        offset: input.len() - rest.len(),
+                        offset: s.len() - rest.len(),
                     })
                 }
             }
-            Err(e) => Err(ParseError::from_nom_err(input, e)),
-        }
-    }
-}
-
-impl<T: ParsableType, R: ParamTypeRef> FromStr for TypeParameters<T, R> {
-    type Err = ParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        TypeParameters::try_parse(s)
-    }
-}
-
-impl<T: ParsableType, R: ParamTypeRef> TypeHints<T, R> {
-    /// Parse the entire input as type hints. Returns an error if parsing fails
-    /// or if any input remains after parsing.
-    pub fn try_parse(input: &str) -> Result<Self, ParseError> {
-        match parse_type_hints::<T, R>(input) {
-            Ok((rest, hints)) => {
-                if rest.trim().is_empty() {
-                    Ok(hints)
-                } else {
-                    Err(ParseError {
-                        message: format!("unexpected remaining input: {:?}", rest),
-                        remaining: rest.to_string(),
-                        offset: input.len() - rest.len(),
-                    })
-                }
-            }
-            Err(e) => Err(ParseError::from_nom_err(input, e)),
+            Err(e) => Err(ParseError::from_nom_err(s, e)),
         }
     }
 }
@@ -593,7 +542,20 @@ impl<T: ParsableType, R: ParamTypeRef> FromStr for TypeHints<T, R> {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        TypeHints::try_parse(s)
+        match parse_type_hints::<T, R>(s) {
+            Ok((rest, hints)) => {
+                if rest.trim().is_empty() {
+                    Ok(hints)
+                } else {
+                    Err(ParseError {
+                        message: format!("unexpected remaining input: {:?}", rest),
+                        remaining: rest.to_string(),
+                        offset: s.len() - rest.len(),
+                    })
+                }
+            }
+            Err(e) => Err(ParseError::from_nom_err(s, e)),
+        }
     }
 }
 
@@ -630,7 +592,7 @@ pub(crate) fn expr_u(input: &str) -> ParameterizedTypeExpr<DemoType> {
 #[cfg(test)]
 #[track_caller]
 pub(crate) fn scope(input: &str) -> Scope<DemoType> {
-    Scope::try_parse(input).expect(&format!("Failed to parse scope {input}"))
+    Scope::from_str(input).expect(&format!("Failed to parse scope {input}"))
 }
 
 #[cfg(test)]

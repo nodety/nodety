@@ -434,7 +434,7 @@ fn test_normalize_nested_index() {
 /// single `T['a']` on an uninferred `T` already was. It used to collapse to `Any` unconditionally.
 #[test]
 fn test_normalize_nested_index_uninferred() {
-    let scope = ScopePointer::new(Scope::<DemoType>::try_parse("<T>").unwrap());
+    let scope = ScopePointer::new("<T>".parse::<Scope<DemoType>>().unwrap());
 
     let single = expr("T['a']");
     assert_eq!(single.normalize(&scope), single);
