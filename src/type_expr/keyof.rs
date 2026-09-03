@@ -1,7 +1,7 @@
 use crate::{
     Type, TypeExpr,
     scope::ScopePointer,
-    type_expr::{AsScopedRef, ScopedRefView, ScopedTypeExpr},
+    type_expr::{AsScopedRef, ConstructorParams, ScopedRefView, ScopedTypeExpr},
 };
 
 impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
@@ -14,11 +14,13 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
     pub fn keyof(&self, scope: &ScopePointer<T>) -> Option<(ScopedTypeExpr<T>, ScopePointer<T>)> {
         // Normalize here so Index, keyof and TypeParameter don't need to get handled by this function.
         match self {
-            Self::Type(inst) => Some((inst.key_type::<R>(None).into(), ScopePointer::clone(scope))),
+            Self::Type(inst) => {
+                Some((inst.key_type::<R>(&ConstructorParams::default()).into(), ScopePointer::clone(scope)))
+            }
 
             Self::Constructor { inner, parameters } => {
                 // Parameters should have been normalized by caller
-                Some((inner.key_type(Some(parameters)).into(), ScopePointer::clone(scope)))
+                Some((inner.key_type(parameters).into(), ScopePointer::clone(scope)))
             }
 
             // See tsReference.ts

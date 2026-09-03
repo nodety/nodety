@@ -143,18 +143,18 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
     /// Used to evaluate keyof expressions.
     ///
     /// # Parameters
-    /// - `fields`: if `self` is wrapped in a constructor then these are the normalized parameters.
+    /// - `fields`: constructor parameters of `self`. Empty when `self` is not wrapped in a constructor.
     ///
     /// # Returns
     /// The key type of `self` or [TypeExpr::Never] if it has no key type.
-    fn key_type<R: TypeRef>(&self, _fields: Option<&ConstructorParams<Self, R>>) -> ConcreteTypeExpr<Self> {
+    fn key_type<R: TypeRef>(&self, _fields: &ConstructorParams<Self, R>) -> ConcreteTypeExpr<Self> {
         TypeExpr::Never
     }
 
     /// Used to evaluate index expressions.
     ///
     /// # Parameters
-    /// - `fields`: if `self` is wrapped in a constructor then these are the parameters.
+    /// - `fields`: constructor parameters of `self`. Empty when `self` is not wrapped in a constructor.
     /// - `index`: fully normalized and provably free of type parameters. If the index type is not
     ///   yet known, nodety leaves the index expression unevaluated instead of calling this.
     ///
@@ -167,7 +167,7 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
     /// reference of its own.
     fn index<R: TypeRef>(
         &self,
-        _fields: Option<&ConstructorParams<Self, R>>,
+        _fields: &ConstructorParams<Self, R>,
         _index: &ConcreteTypeExpr<Self>,
     ) -> TypeExpr<Self, R> {
         TypeExpr::Any

@@ -18,10 +18,10 @@ pub trait FormattableType: Type {
     /// Generic over the reference kind so that both fully concrete
     /// ([NoRef](crate::type_expr::NoRef)) and parameterized ([ParamRef]) expressions can be
     /// formatted. Constructor parameters are handed over as they are — format them with
-    /// [TypeExpr::format_type].
+    /// [TypeExpr::format_type]. Empty when the type is not wrapped in a constructor.
     fn format_type<R: UnscopedRef>(
         &self,
-        parameters: Option<&ConstructorParams<Self, R>>,
+        parameters: &ConstructorParams<Self, R>,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result;
 
@@ -103,13 +103,13 @@ impl<T: FormattableType, R: UnscopedRef> fmt::Display for TypeParameters<T, R> {
 impl FormattableType for DemoType {
     fn format_type<R: UnscopedRef>(
         &self,
-        parameters: Option<&ConstructorParams<Self, R>>,
+        parameters: &ConstructorParams<Self, R>,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {
         match self {
             Self::Array => {
                 write!(f, "Array")?;
-                if let Some(elements_type) = parameters.as_ref().and_then(|params| params.get("elements_type")) {
+                if let Some(elements_type) = parameters.get("elements_type") {
                     write!(f, "<")?;
                     elements_type.format_type(f, false)?;
                     write!(f, ">")?;
@@ -123,17 +123,15 @@ impl FormattableType for DemoType {
             Self::Integer => Ok(write!(f, "Integer")?),
             Self::Record => {
                 f.write_str("{")?;
-                if let Some(parameters) = parameters {
-                    let mut first = true;
-                    for (ident, t) in parameters {
-                        if !first {
-                            write!(f, ", ")?;
-                        }
-                        let ident = format_string(ident);
-                        write!(f, "{ident}: ")?;
-                        t.format_type(f, false)?;
-                        first = false;
+                let mut first = true;
+                for (ident, t) in parameters {
+                    if !first {
+                        write!(f, ", ")?;
                     }
+                    let ident = format_string(ident);
+                    write!(f, "{ident}: ")?;
+                    t.format_type(f, false)?;
+                    first = false;
                 }
                 f.write_str("}")?;
                 Ok(())
@@ -192,7 +190,7 @@ impl<T: FormattableType, R: UnscopedRef> TypeExpr<T, R> {
                 }
                 Ok(())
             }
-            Self::Constructor { inner, parameters } => inner.format_type(Some(parameters), f),
+            Self::Constructor { inner, parameters } => inner.format_type(parameters, f),
             Self::Index { expr, index } => {
                 if atomic {
                     write!(f, "(")?;
@@ -206,7 +204,7 @@ impl<T: FormattableType, R: UnscopedRef> TypeExpr<T, R> {
                 }
                 Ok(())
             }
-            Self::Type(inst) => inst.format_type::<R>(None, f),
+            Self::Type(inst) => inst.format_type::<R>(&ConstructorParams::default(), f),
             Self::Intersection(a, b) => {
                 if atomic {
                     write!(f, "(")?;

@@ -133,9 +133,9 @@ impl Type for DemoType {
         }
     }
 
-    fn key_type<R: TypeRef>(&self, fields: Option<&ConstructorParams<Self, R>>) -> ConcreteTypeExpr<Self> {
-        match (self, fields) {
-            (Self::Record, Some(fields)) => {
+    fn key_type<R: TypeRef>(&self, fields: &ConstructorParams<Self, R>) -> ConcreteTypeExpr<Self> {
+        match self {
+            Self::Record => {
                 let mut keys = fields.keys().cloned().collect::<Vec<String>>();
                 let Some(first) = keys.pop() else {
                     return TypeExpr::Never;
@@ -153,18 +153,18 @@ impl Type for DemoType {
                 current
             }
             #[allow(deprecated)]
-            (Self::Array, _) => TypeExpr::Type(Self::Integer),
+            Self::Array => TypeExpr::Type(Self::Integer),
             _ => TypeExpr::Never,
         }
     }
 
     fn index<R: TypeRef>(
         &self,
-        fields: Option<&ConstructorParams<Self, R>>,
+        fields: &ConstructorParams<Self, R>,
         index: &ConcreteTypeExpr<Self>,
     ) -> TypeExpr<Self, R> {
-        match (self, fields, index) {
-            (Self::Record, Some(fields), index) => {
+        match (self, index) {
+            (Self::Record, index) => {
                 let mut union_str_literals: Vec<Option<&String>> = vec![];
                 index.traverse_union_non_context_sensitive(&mut |expr| {
                     if let TypeExpr::Type(Self::String(Some(literal))) = expr {
@@ -188,7 +188,7 @@ impl Type for DemoType {
                 TypeExpr::from_unions(indexed)
             }
 
-            (Self::Array, Some(fields), index) => {
+            (Self::Array, index) => {
                 if !matches!(index, TypeExpr::Type(Self::Integer)) {
                     return TypeExpr::Type(Self::Unit);
                 }

@@ -32,7 +32,7 @@ impl Type for SimpleType {
 impl FormattableType for SimpleType {
     fn format_type<R: UnscopedRef>(
         &self,
-        _parameters: Option<&ConstructorParams<Self, R>>,
+        _parameters: &ConstructorParams<Self, R>,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {
         match self {

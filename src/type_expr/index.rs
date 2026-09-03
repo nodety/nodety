@@ -1,7 +1,7 @@
 use crate::{
     Type, TypeExpr,
     scope::ScopePointer,
-    type_expr::{AsScopedRef, ScopedRefView, ScopedTypeExpr},
+    type_expr::{AsScopedRef, ConstructorParams, ScopedRefView, ScopedTypeExpr},
 };
 
 impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
@@ -24,11 +24,14 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
         match self {
             Self::Type(inst) => {
                 let index = index_type.normalize_concrete(index_scope)?;
-                Some((inst.index::<R>(None, &index).into_scoped(), ScopePointer::clone(own_scope)))
+                Some((
+                    inst.index::<R>(&ConstructorParams::default(), &index).into_scoped(),
+                    ScopePointer::clone(own_scope),
+                ))
             }
             Self::Constructor { inner, parameters } => {
                 let index = index_type.normalize_concrete(index_scope)?;
-                Some((inner.index(Some(parameters), &index).into_scoped(), ScopePointer::clone(own_scope)))
+                Some((inner.index(parameters, &index).into_scoped(), ScopePointer::clone(own_scope)))
             }
 
             // see tsReference.ts
