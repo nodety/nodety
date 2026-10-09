@@ -6,7 +6,7 @@ use crate::{
     nodety::Nodety,
     scope::{GlobalParameterId, Scope, ScopePointer},
     r#type::Type,
-    type_expr::{ScopedTypeExpr, TypeExpr, node_signature::candidate::Candidate},
+    type_expr::{ParamRef, ScopedTypeExpr, TypeExpr, node_signature::candidate::Candidate},
 };
 use petgraph::graph::NodeIndex;
 use petgraph::visit::IntoNodeReferences;
@@ -141,6 +141,7 @@ impl<T: Type> Default for InferenceConfig<T> {
 
 pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
     let mut stop_after = config.stop_after.clone();
+    let node_scopes = flow_scopes(&flows);
     for step in &config.steps {
         // Optimization:
         // All flows that don't contain any uninferred parameters won't produce
@@ -181,11 +182,6 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
             for candidates in all_candidates.values_mut() {
                 Candidate::drop_union_branch_duplicates(candidates);
             }
-            if !step.allow_uninferred {
-                for candidates in all_candidates.values_mut() {
-                    candidates.retain(|candidate| !candidate.t.contains_uninferred(&candidate.scope));
-                }
-            }
             let mut progress = false;
 
             // Candidate picking
@@ -199,9 +195,20 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
 
                 candidates
                     .retain(|candidate| !candidate.t.references(&HashSet::from([global_id.clone()]), &candidate.scope));
-                let Some((picked_candidate_type, picked_candidate_scope)) =
-                    Candidate::pick_for_param(candidates, registered_param.parameter(), param_scope)
-                else {
+                if !step.allow_uninferred {
+                    // Picking from only the inferred candidates would commit the param to a partial view of its flows.
+                    // Once the pending candidates get inferred, they might not fit the picked type anymore.
+                    if candidates.iter().any(|candidate| awaits_inference(candidate, &node_scopes, config)) {
+                        continue;
+                    }
+                    candidates.retain(|candidate| !candidate.t.contains_uninferred(&candidate.scope));
+                }
+                let Some((picked_candidate_type, picked_candidate_scope)) = Candidate::pick_for_param(
+                    candidates,
+                    registered_param.parameter(),
+                    param_scope,
+                    step.direction == InferenceDirection::Backward,
+                ) else {
                     continue;
                 };
                 if param_scope.infer(&global_id.local_id, picked_candidate_type, picked_candidate_scope).is_ok() {
@@ -222,6 +229,51 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
             }
         }
     }
+}
+
+/// The scopes of all flows including their ancestors. Parameters defined in these scopes can be inferred by the flows.
+/// Parameters defined anywhere else belong to generics within a type (like `<T>(T) -> (T)`) and never get inferred.
+fn flow_scopes<T: Type>(flows: &[Flow<T>]) -> HashSet<ScopePointer<T>> {
+    let mut scopes = HashSet::new();
+    for flow in flows {
+        for scope in [&flow.source_scope, &flow.target_scope] {
+            let mut current = Some(ScopePointer::clone(scope));
+            while let Some(scope) = current {
+                current = scope.parent().clone();
+                if !scopes.insert(scope) {
+                    break;
+                }
+            }
+        }
+    }
+    scopes
+}
+
+/// Tests if the candidate references an uninferred parameter that might still get inferred during this inference.
+fn awaits_inference<T: Type>(
+    candidate: &Candidate<T>,
+    node_scopes: &HashSet<ScopePointer<T>>,
+    config: &InferenceConfig<T>,
+) -> bool {
+    let mut awaits = false;
+    candidate.t.traverse(
+        &candidate.scope,
+        &mut |expr, traverse_scope, _is_tl_union| {
+            let Some(ParamRef { param_id, .. }) = expr.as_param() else {
+                return;
+            };
+            let Some(param_scope) = traverse_scope.lookup_scope(param_id) else {
+                return;
+            };
+            if param_scope.is_inferred(param_id) || !node_scopes.contains(&param_scope) {
+                return;
+            }
+            let global_id = GlobalParameterId { scope: param_scope, local_id: *param_id };
+            awaits |= config.restrictions.as_ref().is_none_or(|restrictions| restrictions.contains(&global_id));
+        },
+        false,
+    );
+    awaits
 }
 
 impl<T: Type> Nodety<T> {

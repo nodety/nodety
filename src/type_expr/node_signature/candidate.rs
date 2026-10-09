@@ -43,12 +43,15 @@ impl<T: Type> Candidate<T> {
         });
     }
 
-    /// Picks the best candidate from the list, respecting bounds and preferring common supertypes.
+    /// Picks the best candidate from the list, respecting bounds.
+    /// Candidates flowing into the param are lower bounds and pick the common supertype.
+    /// Candidates the param flows into are `upper_bounds` and pick the common subtype.
     /// Returns `None` if the parameter bound is uninferred or no candidate satisfies it.
     pub fn pick_for_param(
         mut candidates: Vec<Candidate<T>>,
         type_param: &TypeParameter<T, ScopedTypeRef<T>>,
         param_scope: &ScopePointer<T>,
+        upper_bounds: bool,
     ) -> Option<(ScopedTypeExpr<T>, ScopePointer<T>)> {
         if let Some(bound) = &type_param.bound
             && !bound.is_any(param_scope).unwrap_or(false)
@@ -71,6 +74,9 @@ impl<T: Type> Candidate<T> {
         if candidates.is_empty() {
             return None;
         }
+        if upper_bounds {
+            return Self::pick_meet(candidates);
+        }
         if let Some(best_common_supertype) = Self::pick_best(&candidates) {
             Some((best_common_supertype.t.clone(), best_common_supertype.scope.clone()))
         } else {
@@ -83,6 +89,28 @@ impl<T: Type> Candidate<T> {
                 ScopePointer::new_root(),
             ))
         }
+    }
+
+    /// The param must be a subtype of all upper bounds.
+    /// Picks the candidate that is a subtype of all others or the intersection of all candidates if it is not never.
+    fn pick_meet(candidates: Vec<Candidate<T>>) -> Option<(ScopedTypeExpr<T>, ScopePointer<T>)> {
+        let common_subtype = candidates.iter().find(|candidate| {
+            candidates
+                .iter()
+                .all(|other| other.t.supertype_of(&candidate.t, &other.scope, &candidate.scope).is_supertype())
+        });
+        if let Some(common_subtype) = common_subtype {
+            return Some((common_subtype.t.clone(), common_subtype.scope.clone()));
+        }
+        let mut candidates = candidates.into_iter();
+        let first = candidates.next()?;
+        let (meet, meet_scope) = candidates.try_fold((first.t, first.scope), |(meet, meet_scope), candidate| {
+            TypeExpr::intersection(&meet, &candidate.t, &meet_scope, &candidate.scope)
+        })?;
+        if meet.is_never(&meet_scope).unwrap_or(true) {
+            return None;
+        }
+        Some((meet, meet_scope))
     }
 
     fn pick_best(candidates: &[Candidate<T>]) -> Option<&Candidate<T>> {

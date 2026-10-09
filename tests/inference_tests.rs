@@ -474,6 +474,93 @@ fn test_infer_from_param_inside_union() {
     assert_eq!(expr("Integer | Float"), inferred_t.normalize(&inferred_t_scope));
 }
 
+///   <T>
+///  |  T| ------------------------------------------------+---- |C   C| ----- |{a: Integer}|
+///      +---- |{a: Integer}   {a: Integer, b: String}| ---+---- |C    |
+///
+/// Expected result:
+/// C must not get inferred from the second input alone, while the first input is still waiting for T.
+/// T gets inferred to {a: Integer} and C to the common supertype {a: Integer}.
+#[test]
+fn test_infer_param_waits_for_pending_candidates() {
+    let engine = graph(
+        vec![
+            sig_u("<T>() -> (T)"),
+            sig_u("({a: Integer}) -> ({a: Integer, b: String})"),
+            sig_u("<C>(C, C) -> (C)"),
+            sig_u("({a: Integer}) -> ()"),
+        ],
+        vec![(0, 1, 0, 0), (0, 2, 0, 0), (1, 2, 0, 1), (2, 3, 0, 0)],
+    );
+    let scopes = engine.infer(&InferenceConfig::default());
+
+    let (inferred_t, inferred_t_scope) = scopes.get(&NodeIndex::from(0)).unwrap().lookup_inferred(&"T".into()).unwrap();
+    let (inferred_c, inferred_c_scope) = scopes.get(&NodeIndex::from(2)).unwrap().lookup_inferred(&"C".into()).unwrap();
+
+    assert_eq!(expr("{a: Integer}"), inferred_t.normalize(&inferred_t_scope));
+    assert_eq!(expr("{a: Integer}"), inferred_c.normalize(&inferred_c_scope));
+    assert_eq!(engine.validate(&scopes), []);
+}
+
+///   <T>                                                         <C extends {}>
+///  |  T| ------------------------------------------------+---- |C   |
+///      +---- |{a: Integer}   {a: Integer, b: String}| ---+---- |C   |
+///
+/// Expected result:
+/// T and C wait for each other, so C gets inferred from the second input first.
+/// T flows into {a: Integer} and C = {a: Integer, b: String}, so it must be a subtype of both.
+#[test]
+fn test_infer_backwards_picks_common_subtype() {
+    let engine = graph(
+        vec![
+            sig_u("<T>() -> (T)"),
+            sig_u("({a: Integer}) -> ({a: Integer, b: String})"),
+            sig_u("<C extends {}>(C, C) -> ()"),
+        ],
+        vec![(0, 1, 0, 0), (0, 2, 0, 0), (1, 2, 0, 1)],
+    );
+    let scopes = engine.infer(&InferenceConfig::default());
+
+    let (inferred_t, inferred_t_scope) = scopes.get(&NodeIndex::from(0)).unwrap().lookup_inferred(&"T".into()).unwrap();
+
+    assert_eq!(expr("{a: Integer, b: String}"), inferred_t.normalize(&inferred_t_scope));
+    assert_eq!(engine.validate(&scopes), []);
+}
+
+///   <T>
+///  |  T| ----- |{a: Integer}|
+///      +------ |{b: String} |
+///
+/// Expected result:
+/// T gets inferred to the intersection of both upper bounds.
+#[test]
+fn test_infer_backwards_intersects_upper_bounds() {
+    let engine = graph(
+        vec![sig_u("<T>() -> (T)"), sig_u("({a: Integer}) -> ()"), sig_u("({b: String}) -> ()")],
+        vec![(0, 1, 0, 0), (0, 2, 0, 0)],
+    );
+    let scopes = engine.infer(&InferenceConfig::default());
+
+    assert_eq!(engine.validate(&scopes), []);
+}
+
+///   <T>
+///  |  T| ----- |Integer|
+///      +------ |String |
+///
+/// Expected result:
+/// The upper bounds have nothing in common, so T doesn't get inferred.
+#[test]
+fn test_infer_backwards_disjoint_upper_bounds() {
+    let engine = graph(
+        vec![sig_u("<T>() -> (T)"), sig_u("(Integer) -> ()"), sig_u("(String) -> ()")],
+        vec![(0, 1, 0, 0), (0, 2, 0, 0)],
+    );
+    let scopes = engine.infer(&InferenceConfig::default());
+
+    assert!(scopes.get(&NodeIndex::from(0)).unwrap().lookup_inferred(&"T".into()).is_none());
+}
+
 // #[test]
 // fn test_infer_outer_signature_identity() {
 //     let mut nodety = Nodety::<DemoType>::new();
