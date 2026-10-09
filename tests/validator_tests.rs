@@ -311,3 +311,20 @@ fn test_inference_and_validation_cyclic_graph() {
         .normalize(scopes.get(&NodeIndex::from(2)).unwrap());
     assert_eq!(expr("Integer"), inferred_t_b, "T in cycle node B should infer to Integer");
 }
+
+#[test]
+fn default_key_can_use_a_generic_records_guaranteed_field() {
+    use nodety::Node;
+
+    let mut engine = Nodety::<DemoType>::new();
+    let root = engine.add_node(sig_u("<A extends {time: Integer}>() -> ()")).unwrap();
+    let source = engine
+        .add_node(Node { signature: sig_u("() -> (A)"), parent: Some(root), type_hints: Default::default() })
+        .unwrap();
+    let mut signature = sig_u("<C extends {}>(C, {property: keyof C | 'place'}) -> ()");
+    signature.default_input_types.insert(1, "{property: 'time'}".parse().unwrap());
+    let sort = engine.add_node(Node { signature, parent: Some(root), type_hints: Default::default() }).unwrap();
+    engine.add_edge(source, sort, Edge { source_port: 0, target_port: 0 }).unwrap();
+    let errors = engine.validate(&engine.infer(&InferenceConfig::default()));
+    assert_eq!(errors, []);
+}

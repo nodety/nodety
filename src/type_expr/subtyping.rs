@@ -379,8 +379,14 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
             }
 
             (TypeExpr::KeyOf(parent_expr), child) => {
-                let (keyof, keyof_scope) = parent_expr.keyof(&parent_scope).ok_or(Unknown)?;
-                keyof.supertype_of_impl::<D, R2>(child, &keyof_scope, &child_scope)
+                if let Some((keyof, keyof_scope)) = parent_expr.keyof(&parent_scope) {
+                    return keyof.supertype_of_impl::<D, R2>(child, &keyof_scope, &child_scope);
+                }
+                // A structural bound guarantees these keys, but an eventual subtype may
+                // have more. Use them only to prove membership, never to reject it or
+                // normalize keyof to an exact type during inference.
+                let (keys, keys_scope) = parent_expr.keyof_structural_bound(&parent_scope).ok_or(Unknown)?;
+                keys.supertype_of_impl::<D, R2>(child, &keys_scope, &child_scope).map_err(|_| Unknown)
             }
 
             (parent, child @ TypeExpr::KeyOf(child_expr)) => {
@@ -629,6 +635,25 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
             }
         });
         is_optional
+    }
+}
+
+impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
+    fn keyof_structural_bound(&self, scope: &ScopePointer<T>) -> Option<(ScopedTypeExpr<T>, ScopePointer<T>)> {
+        let TypeExpr::Ref(reference) = self else { return None };
+        match reference.view() {
+            ScopedRefView::ScopedExpr { expr, scope } => expr.keyof_structural_bound(scope),
+            ScopedRefView::Param(param) => {
+                if let Some((inferred, inferred_scope)) = scope.lookup_inferred(&param.param_id) {
+                    return inferred.keyof_structural_bound(&inferred_scope);
+                }
+                let (bound, bound_scope) = scope.lookup_bound(&param.param_id)?;
+                match bound.as_ref() {
+                    TypeExpr::Constructor { .. } => bound.keyof(&bound_scope),
+                    _ => None,
+                }
+            }
+        }
     }
 }
 

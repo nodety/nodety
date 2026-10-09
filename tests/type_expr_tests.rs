@@ -715,3 +715,46 @@ fn test_optional_record_fields() {
     assert!(expr("{a: Unit}").supertype_of_naive(&expr("{}")).is_supertype());
     assert!(!expr("{a: Integer}").supertype_of_naive(&expr("{a: Unit}")).is_supertype());
 }
+
+#[test]
+fn keyof_accepts_keys_guaranteed_by_generic_bound() {
+    let mut scope = Scope::new_root();
+    scope.define(LocalParamID(0), TypeParameter { bound: Some(expr("{time: Integer}")), ..Default::default() });
+    let scope = ScopePointer::new(scope);
+    assert!(expr("keyof #0").supertype_of(&expr("'time'"), &scope, &scope).is_supertype());
+}
+
+#[test]
+fn keyof_bound_is_not_the_complete_set_of_keys() {
+    let mut scope = Scope::new_root();
+    scope.define(LocalParamID(0), TypeParameter { bound: Some(expr("{time: Integer}")), ..Default::default() });
+    let scope = ScopePointer::new(scope);
+    let keys = expr("keyof #0");
+    assert_eq!(keys.supertype_of(&expr("'extra'"), &scope, &scope), SupertypeResult::Unknown);
+    assert_eq!(expr("'time'").supertype_of(&keys, &scope, &scope), SupertypeResult::Unknown);
+    assert_eq!(keys.normalize(&scope), keys);
+    assert!(expr("#0").keyof(&scope).is_none());
+}
+
+#[test]
+fn keyof_bound_follows_inferred_aliases_in_their_defining_scope() {
+    let mut outer = Scope::new_root();
+    outer.define(LocalParamID(0), TypeParameter { bound: Some(expr("{time: Integer}")), ..Default::default() });
+    let outer = ScopePointer::new(outer);
+    let mut inner = Scope::new_child(&outer);
+    inner.define(LocalParamID(0), TypeParameter::default());
+    inner.infer(&LocalParamID(0), expr("#0"), outer).unwrap();
+    let inner = ScopePointer::new(inner);
+    assert!(expr("keyof #0").supertype_of(&expr("'time'"), &inner, &inner).is_supertype());
+}
+
+#[test]
+fn keyof_uses_exact_keys_once_parameter_is_inferred() {
+    let mut scope = Scope::new_root();
+    scope.define(LocalParamID(0), TypeParameter { bound: Some(expr("{time: Integer}")), ..Default::default() });
+    scope.infer(&LocalParamID(0), expr("{time: Integer, extra: String}"), ScopePointer::new_root()).unwrap();
+    let scope = ScopePointer::new(scope);
+    let keys = expr("keyof #0");
+    assert!(keys.supertype_of(&expr("'extra'"), &scope, &scope).is_supertype());
+    assert!(matches!(keys.supertype_of(&expr("'missing'"), &scope, &scope), SupertypeResult::Unrelated(_)));
+}
