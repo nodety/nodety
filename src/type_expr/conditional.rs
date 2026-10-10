@@ -77,7 +77,9 @@ pub struct ConditionalDistribution<'a, T: Type> {
 impl<'a, T: Type> ConditionalDistribution<'a, T> {
     pub fn into_conditional(self, conditional: &Conditional<T, ScopedTypeRef<T>>) -> Conditional<T, ScopedTypeRef<T>> {
         Conditional {
-            t_test: self.new_t_test.into_owned(),
+            // `new_t_test` is only valid in its own scope. Without the portal it would get resolved in the
+            // conditional's scope, where a param of the same name can resolve back to the original union.
+            t_test: TypeExpr::scope_portal(self.new_t_test.into_owned(), self.new_t_test_scope),
             t_test_bound: conditional.t_test_bound.clone(),
             t_then: TypeExpr::scope_portal(conditional.t_then.clone(), ScopePointer::clone(&self.new_then_else_scope)),
             t_else: TypeExpr::scope_portal(conditional.t_else.clone(), self.new_then_else_scope),

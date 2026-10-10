@@ -577,3 +577,21 @@ fn test_infer_backwards_disjoint_upper_bounds() {
 // }
 
 // pub fn build_outer_signature
+
+///   <T>                <T>
+///  | T | Integer| ----- |T    T extends Unit ? Integer : String| ----- |Any     |
+///
+/// Distributing the conditional over the inferred `T | Integer` used to resolve the source's `T` in the
+/// conditional's own scope, where `T` is inferred to `T | Integer` again and distributes forever.
+#[test]
+fn test_infer_conditional_over_union_with_same_named_param() {
+    let validate = |source: &str| {
+        let engine = graph(
+            vec![sig_u(source), sig_u("<T>(T) -> (T extends Unit ? Integer : String)"), sig_u("(Any) -> ()")],
+            vec![(0, 1, 0, 0), (1, 2, 0, 0)],
+        );
+        engine.validate(&engine.infer(&InferenceConfig::default()))
+    };
+    // Must behave exactly as if the params had different names.
+    assert_eq!(validate("<T>() -> (T | Integer)"), validate("<U>() -> (U | Integer)"));
+}
