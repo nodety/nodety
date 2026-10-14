@@ -18,6 +18,11 @@ pub enum NoOperator {
     // Never add a variant here!
 }
 
+#[cfg(feature = "tsify")]
+#[wasm_bindgen::prelude::wasm_bindgen(typescript_custom_section)]
+const OPERATOR_OF_TS: &str = "export interface TypeOperators {}
+export type OperatorOf<T> = Extract<TypeOperators[keyof TypeOperators], [T, unknown]>[1];";
+
 /// # Type
 /// The Type trait is at the heart of a node type system.
 /// For a reference implementation have a look at the [`demo_type`](crate::demo_type) module.
@@ -99,6 +104,10 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
     ///
     /// [`Eq`] and [`Hash`] are required so that type expressions containing an
     /// [`Operation`](TypeExpr::Operation) can themselves be hashed and compared for equality.
+    ///
+    /// With the `tsify` feature, TypeScript reads the operator of `T` as `OperatorOf<T>`, which is `never`
+    /// unless the consumer registers its operator next to its generated types:
+    /// `export interface TypeOperators { myType: [MyType, MyOperator] }`.
     type Operator: PartialEq + Eq + Hash + Debug + Clone;
 
     /// The heart of any type system.

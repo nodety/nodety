@@ -92,6 +92,7 @@ pub enum TypeExpr<T: Type, R: TypeRef = ParamRef> {
     /// And the [SIUnit](crate::demo_type::SIUnit) type for a reference implementation with operators.
     Operation {
         a: Box<TypeExpr<T, R>>,
+        #[cfg_attr(feature = "tsify", tsify(type = "OperatorOf<T>"))]
         operator: T::Operator,
         b: Box<TypeExpr<T, R>>,
     },
