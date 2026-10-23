@@ -150,11 +150,13 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
             flow.source.contains_uninferred(&flow.source_scope) || flow.target.contains_uninferred(&flow.target_scope)
         });
         loop {
-            // Candidate collection
-            let mut all_candidates = HashMap::new();
+            // Candidate collection, in the order of the flows: picking one parameter changes the candidates of the
+            // next ones, so hash order would make the result random.
+            let mut all_candidates: Vec<(GlobalParameterId<T>, Vec<Candidate<T>>)> = Vec::new();
+            let mut index_of = HashMap::new();
             for flow in &flows {
                 let candidates = if step.direction == InferenceDirection::Forward {
-                    flow.target.collect_candidates(
+                    flow.target.collect_candidates_in_order(
                         &flow.source,
                         &flow.target_scope,
                         &flow.source_scope,
@@ -162,7 +164,7 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
                         step.ignore_excluded,
                     )
                 } else {
-                    flow.source.collect_candidates(
+                    flow.source.collect_candidates_in_order(
                         &flow.target,
                         &flow.source_scope,
                         &flow.target_scope,
@@ -176,10 +178,14 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
                     {
                         continue;
                     }
-                    all_candidates.entry(global_param_id).or_insert_with(Vec::new).extend(candidate);
+                    let index = *index_of.entry(global_param_id.clone()).or_insert_with(|| {
+                        all_candidates.push((global_param_id, Vec::new()));
+                        all_candidates.len() - 1
+                    });
+                    all_candidates[index].1.extend(candidate);
                 }
             }
-            for candidates in all_candidates.values_mut() {
+            for (_, candidates) in &mut all_candidates {
                 Candidate::drop_union_branch_duplicates(candidates);
             }
             let mut progress = false;
