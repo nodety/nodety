@@ -156,7 +156,7 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
             let mut index_of = HashMap::new();
             for flow in &flows {
                 let candidates = if step.direction == InferenceDirection::Forward {
-                    flow.target.collect_candidates(
+                    flow.target.collect_candidates_in_order(
                         &flow.source,
                         &flow.target_scope,
                         &flow.source_scope,
@@ -164,7 +164,7 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
                         step.ignore_excluded,
                     )
                 } else {
-                    flow.source.collect_candidates(
+                    flow.source.collect_candidates_in_order(
                         &flow.target,
                         &flow.source_scope,
                         &flow.target_scope,

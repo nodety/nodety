@@ -3,13 +3,27 @@ use crate::{
     r#type::Type,
     type_expr::{ScopedTypeExpr, node_signature::candidate::Candidate},
 };
+use std::collections::HashMap;
 
 impl<T: Type> ScopedTypeExpr<T> {
     /// # Parameters
     /// - `ignore_excluded`: if false, type params with infer = false won't produce candidates, Otherwise all will emit candidates.
-    ///
-    /// The parameters come in the order they are found, so that inference doesn't depend on hashing.
     pub fn collect_candidates(
+        &self,
+        source: &Self,
+        own_scope: &ScopePointer<T>,
+        source_scope: &ScopePointer<T>,
+        infer_source_from_self: bool,
+        ignore_excluded: bool,
+    ) -> HashMap<GlobalParameterId<T>, Vec<Candidate<T>>> {
+        self.collect_candidates_in_order(source, own_scope, source_scope, infer_source_from_self, ignore_excluded)
+            .into_iter()
+            .collect()
+    }
+
+    /// [`Self::collect_candidates`] with the parameters in the order they are found, so that inference doesn't
+    /// depend on hashing.
+    pub(crate) fn collect_candidates_in_order(
         &self,
         source: &Self,
         own_scope: &ScopePointer<T>,
@@ -74,7 +88,7 @@ mod tests {
         let target_scope = ScopePointer::new(scope("<T>"));
         let source_scope = ScopePointer::new_root();
 
-        let candidates = target.collect_candidates(&source, &target_scope, &source_scope, false, false);
+        let candidates = target.collect_candidates_in_order(&source, &target_scope, &source_scope, false, false);
 
         let expected = vec![(
             GlobalParameterId { scope: target_scope, local_id: "T".into() },
