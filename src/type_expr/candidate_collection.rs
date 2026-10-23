@@ -3,11 +3,12 @@ use crate::{
     r#type::Type,
     type_expr::{ScopedTypeExpr, node_signature::candidate::Candidate},
 };
-use std::collections::HashMap;
 
 impl<T: Type> ScopedTypeExpr<T> {
     /// # Parameters
     /// - `ignore_excluded`: if false, type params with infer = false won't produce candidates, Otherwise all will emit candidates.
+    ///
+    /// The parameters come in the order they are found, so that inference doesn't depend on hashing.
     pub fn collect_candidates(
         &self,
         source: &Self,
@@ -15,8 +16,8 @@ impl<T: Type> ScopedTypeExpr<T> {
         source_scope: &ScopePointer<T>,
         infer_source_from_self: bool,
         ignore_excluded: bool,
-    ) -> HashMap<GlobalParameterId<T>, Vec<Candidate<T>>> {
-        let mut candidates = HashMap::new();
+    ) -> Vec<(GlobalParameterId<T>, Vec<Candidate<T>>)> {
+        let mut candidates: Vec<(GlobalParameterId<T>, Vec<Candidate<T>>)> = Vec::new();
 
         self.traverse_parallel(
             source,
@@ -48,10 +49,12 @@ impl<T: Type> ScopedTypeExpr<T> {
                     // - or it references a param that was defined within self.
                     return;
                 }
-                candidates
-                    .entry(global_id)
-                    .or_insert(Vec::new())
-                    .push(Candidate { t: source_type.clone(), scope: ScopePointer::clone(source_traversal_scope) });
+                let candidate =
+                    Candidate { t: source_type.clone(), scope: ScopePointer::clone(source_traversal_scope) };
+                match candidates.iter_mut().find(|(id, _)| *id == global_id) {
+                    Some((_, param_candidates)) => param_candidates.push(candidate),
+                    None => candidates.push((global_id, vec![candidate])),
+                }
             },
         );
         candidates
@@ -62,7 +65,6 @@ impl<T: Type> ScopedTypeExpr<T> {
 mod tests {
     use super::*;
     use crate::notation::parse::{expr, scope};
-    use maplit::hashmap;
 
     #[test]
     fn test_collect_candidates() {
@@ -74,7 +76,10 @@ mod tests {
 
         let candidates = target.collect_candidates(&source, &target_scope, &source_scope, false, false);
 
-        let expected = hashmap! { GlobalParameterId { scope: target_scope, local_id: "T".into() } => vec![Candidate { t: expr("Integer"), scope: source_scope }]};
+        let expected = vec![(
+            GlobalParameterId { scope: target_scope, local_id: "T".into() },
+            vec![Candidate { t: expr("Integer"), scope: source_scope }],
+        )];
         assert_eq!(expected, candidates);
     }
 }
