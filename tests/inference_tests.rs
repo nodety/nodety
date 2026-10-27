@@ -595,3 +595,50 @@ fn test_infer_conditional_over_union_with_same_named_param() {
     // Must behave exactly as if the params had different names.
     assert_eq!(validate("<T>() -> (T | Integer)"), validate("<U>() -> (U | Integer)"));
 }
+
+fn inferred_t(engine: &nodety::Nodety<DemoType>, node: usize) -> TypeExpr<DemoType, ScopedTypeRef<DemoType>> {
+    let scopes = engine.infer(&InferenceConfig::default());
+    let inferred =
+        scopes.get(&NodeIndex::from(node as u32)).unwrap().lookup_inferred(&LocalParamID::from("T")).unwrap();
+    inferred.0.normalize(&inferred.1)
+}
+
+fn root() -> nodety::scope::ScopePointer<DemoType> {
+    nodety::scope::ScopePointer::new_root()
+}
+
+///  | 'a' | 'b'| ----- |T        |
+///                     |!T  'c'  |
+#[test]
+fn a_union_of_literals_infers_a_supertype_of_the_union() {
+    let engine = graph(
+        vec![sig_u("() -> ('a' | 'b')"), sig_u("() -> ('c')"), sig_u("<T>(T, !T) -> ()")],
+        vec![(0, 2, 0, 0), (1, 2, 0, 1)],
+    );
+    let t = inferred_t(&engine, 2);
+    assert!(t.supertype_of(&expr("'a' | 'b'"), &root(), &root()).is_supertype(), "{t:?}");
+}
+
+///  | 'a'| ----- |T  |
+///  | 'b'| ----- |T  |
+#[test]
+fn two_literals_infer_their_common_supertype() {
+    let engine = graph(
+        vec![sig_u("() -> ('a')"), sig_u("() -> ('b')"), sig_u("<T>(T, T) -> ()")],
+        vec![(0, 2, 0, 0), (1, 2, 0, 1)],
+    );
+    assert_eq!(inferred_t(&engine, 2), Type(String(None)));
+}
+
+///  | Integer| ----- |T  |
+///  | 'b'    | ----- |T  |
+#[test]
+fn candidates_without_a_common_supertype_infer_their_union() {
+    let engine = graph(
+        vec![sig_u("() -> (Integer)"), sig_u("() -> ('b')"), sig_u("<T>(T, T) -> ()")],
+        vec![(0, 2, 0, 0), (1, 2, 0, 1)],
+    );
+    let t = inferred_t(&engine, 2);
+    assert!(t.supertype_of(&expr("Integer | 'b'"), &root(), &root()).is_supertype(), "{t:?}");
+    assert!(!t.supertype_of(&expr("Float"), &root(), &root()).is_supertype(), "{t:?}");
+}

@@ -84,6 +84,13 @@ pub enum DemoOperator {
 impl Type for DemoType {
     type Operator = DemoOperator;
 
+    fn common_supertype(&self, other: &Self) -> Option<Self> {
+        match (self, other) {
+            (Self::String(_), Self::String(_)) => Some(Self::String(None)),
+            _ => None,
+        }
+    }
+
     fn supertype_of(&self, child: &Self) -> bool {
         match (self, child) {
             // Special types
