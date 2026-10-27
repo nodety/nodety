@@ -78,17 +78,23 @@ impl<T: Type> Candidate<T> {
             return Self::pick_meet(candidates);
         }
         if let Some(best_common_supertype) = Self::pick_best(&candidates) {
-            Some((best_common_supertype.t.clone(), best_common_supertype.scope.clone()))
-        } else {
-            Some((
-                TypeExpr::from_unions(
-                    candidates
-                        .into_iter()
-                        .map(|c| TypeExpr::Ref(ScopedTypeRef::ScopedExpr { expr: Box::new(c.t), scope: c.scope })),
-                ),
-                ScopePointer::new_root(),
-            ))
+            return Some((best_common_supertype.t.clone(), best_common_supertype.scope.clone()));
         }
+        if let Some(common_supertype) = Self::common_supertype(&candidates)
+            && type_param.bound.as_ref().is_none_or(|bound| {
+                bound.supertype_of(&common_supertype, param_scope, &ScopePointer::new_root()).is_supertype()
+            })
+        {
+            return Some((common_supertype, ScopePointer::new_root()));
+        }
+        Some((
+            TypeExpr::from_unions(
+                candidates
+                    .into_iter()
+                    .map(|c| TypeExpr::Ref(ScopedTypeRef::ScopedExpr { expr: Box::new(c.t), scope: c.scope })),
+            ),
+            ScopePointer::new_root(),
+        ))
     }
 
     /// The param must be a subtype of all upper bounds.
@@ -111,6 +117,27 @@ impl<T: Type> Candidate<T> {
             return None;
         }
         Some((meet, meet_scope))
+    }
+
+    /// The [Type::common_supertype] of all candidates, if all of them are plain types and the type system has one.
+    fn common_supertype(candidates: &[Candidate<T>]) -> Option<ScopedTypeExpr<T>> {
+        let mut types = candidates.iter().map(|candidate| match candidate.t.normalize(&candidate.scope) {
+            TypeExpr::Type(t) => Some(t),
+            _ => None,
+        });
+        let first = types.next()??;
+        types
+            .try_fold(first, |common, t| {
+                let t = t?;
+                if common.supertype_of(&t) {
+                    Some(common)
+                } else if t.supertype_of(&common) {
+                    Some(t)
+                } else {
+                    common.common_supertype(&t)
+                }
+            })
+            .map(TypeExpr::Type)
     }
 
     fn pick_best(candidates: &[Candidate<T>]) -> Option<&Candidate<T>> {

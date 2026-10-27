@@ -198,6 +198,18 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
         TypeExpr::Never
     }
 
+    /// The narrowest type that both `self` and `other` are subtypes of, if the type system has one.
+    ///
+    /// Inference uses it when a type parameter gets several candidates of which none is a supertype of all others,
+    /// e.g. the literals `42` and `38` flowing into `<T>(T, T)`: with `Integer` as their common supertype, `T` becomes
+    /// `Integer` instead of the union `42 | 38`.
+    ///
+    /// # Returns
+    /// `None` if there is none; inference then falls back to the union of the candidates.
+    fn common_supertype(&self, _other: &Self) -> Option<Self> {
+        None
+    }
+
     /// # Returns
     /// true if this type is not required in a constructor.
     ///
