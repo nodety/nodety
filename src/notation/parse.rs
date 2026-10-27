@@ -17,6 +17,7 @@ use crate::{
     type_expr::{
         ConstructorParams, ParamRef, ParamTypeRef, ScopedTypeRef, TypeExpr,
         conditional::Conditional,
+        mapped::Mapped,
         node_signature::{NodeSignature, port_types::PortTypes, type_parameters::TypeParameters},
     },
 };
@@ -209,6 +210,7 @@ fn parse_type_expr_conditional<T: ParsableType, R: ParamTypeRef>(input: &str) ->
 fn parse_atomic_type_expr<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
     alt((
         parse_node_signature.map(|sig| TypeExpr::NodeSignature(Box::new(sig))),
+        parse_mapped,
         T::parse,
         value(TypeExpr::Any, tag("Any")),
         value(TypeExpr::Never, tag("Never")),
@@ -232,6 +234,27 @@ fn parse_sig_input_output<T: ParsableType, R: ParamTypeRef>(
         parse_port_types,
     ))
     .parse(input)
+}
+
+/// `{[K in keyof S]: V}`
+fn parse_mapped<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
+    (
+        ws0(char('{')),
+        ws0(char('[')),
+        parse_type_parameter,
+        ws1(tag("in")),
+        ws0(tag("keyof ")),
+        parse_atomic_type_expr,
+        ws0(char(']')),
+        ws0(char(':')),
+        parse_type_expr,
+        // No trailing whitespace, so that `{[K in keyof T]: V} extends ...` still parses as a conditional.
+        preceded(multispace0, char('}')),
+    )
+        .map(|(_, _, (key_param, _), _, _, source, _, _, value, _)| {
+            TypeExpr::Mapped(Box::new(Mapped { key_param, source, value }))
+        })
+        .parse(input)
 }
 
 fn parse_keyof<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {

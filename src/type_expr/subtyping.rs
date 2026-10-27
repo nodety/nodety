@@ -460,6 +460,17 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 &child_scope,
             ),
 
+            (TypeExpr::Mapped(mapped), child) => mapped
+                .evaluate(&parent_scope)
+                .ok_or(Unknown)?
+                .supertype_of_impl::<D, R2>(child, &parent_scope, &child_scope),
+
+            (parent, TypeExpr::Mapped(mapped)) => parent.supertype_of_impl::<D, ScopedTypeRef<T>>(
+                &mapped.evaluate(&child_scope).ok_or(Unknown)?,
+                &parent_scope,
+                &child_scope,
+            ),
+
             (parent @ TypeExpr::NodeSignature(parent_sig), child @ TypeExpr::NodeSignature(child_sig)) => {
                 // Inputs: parent (interface) with varg cannot be supertype of child (impl) when child
                 // has more fixed ports than parent (child requires more args than parent's minimum).

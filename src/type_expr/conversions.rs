@@ -145,6 +145,7 @@ impl<T: Type, R: TypeRef> TypeExpr<T, R> {
                 t_else: conditional.t_else.try_map_refs_mut(mapper)?,
                 infer: conditional.infer,
             })),
+            Self::Mapped(mapped) => TypeExpr::Mapped(Box::new(mapped.try_map_refs_mut(mapper)?)),
             Self::Any => TypeExpr::Any,
             Self::Never => TypeExpr::Never,
             Self::Ref(r) => TypeExpr::Ref(mapper(r)?),

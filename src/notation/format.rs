@@ -191,6 +191,15 @@ impl<T: FormattableType, R: UnscopedRef> TypeExpr<T, R> {
                 Ok(())
             }
             Self::Constructor { inner, parameters } => inner.format_type(parameters, f),
+            Self::Mapped(mapped) => {
+                write!(f, "{{[")?;
+                format_type_param(mapped.key_param, f)?;
+                write!(f, " in keyof ")?;
+                mapped.source.format_type(f, true)?;
+                write!(f, "]: ")?;
+                mapped.value.format_type(f, false)?;
+                write!(f, "}}")
+            }
             Self::Index { expr, index } => {
                 if atomic {
                     write!(f, "(")?;

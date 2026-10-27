@@ -9,6 +9,7 @@ use crate::{
     type_expr::{
         ParamRef, ScopedTypeRef,
         conditional::Conditional,
+        mapped::Mapped,
         node_signature::{port_types::PortTypes, type_parameters::TypeParameters, validate_type_parameters},
     },
 };
@@ -112,6 +113,13 @@ where
                                 t_else,
                                 infer: BTreeSet::new(),
                             })),
+                        ),
+                        ((0..10u32).prop_map(LocalParamID), element.clone(), element.clone()).prop_map(
+                            |(key_param, source, value)| TypeExpr::Mapped(Box::new(Mapped {
+                                key_param,
+                                source,
+                                value
+                            }))
                         ),
                         any_with::<NodeSignature<T>>(ArbitraryExprParams { expr_strat: element.clone() })
                             .prop_map(|signature| TypeExpr::NodeSignature(Box::new(signature))),

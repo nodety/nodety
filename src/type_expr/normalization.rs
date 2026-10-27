@@ -3,7 +3,7 @@ use crate::{
     r#type::Type,
     type_expr::{
         AsScopedRef, ConstructorParams, ScopedRefView, ScopedTypeExpr, ScopedTypeRef, TypeExpr,
-        conditional::Conditional,
+        conditional::Conditional, mapped::Mapped,
     },
 };
 
@@ -117,6 +117,17 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                     normalized_params.insert(ident.clone(), param.normalize(&scope));
                 }
                 TypeExpr::Constructor { inner: inner.clone(), parameters: normalized_params }
+            }
+
+            Self::Mapped(mapped) => {
+                if let Some(evaluated) = mapped.evaluate(&scope) {
+                    return evaluated.normalize(&scope);
+                }
+                TypeExpr::Mapped(Box::new(Mapped {
+                    key_param: mapped.key_param,
+                    source: mapped.source.normalize(&scope),
+                    value: mapped.value.normalize(&mapped.value_scope(&scope, None)),
+                }))
             }
 
             Self::NodeSignature(sig) => TypeExpr::NodeSignature(Box::new(sig.normalize(&scope))),

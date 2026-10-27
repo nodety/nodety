@@ -92,6 +92,9 @@ impl<T: Type, Ra: AsScopedRef<T>> TypeExpr<T, Ra> {
                 TypeExpr::intersection(a, &conditional.distribute(scope_b)?, scope_a, scope_b)
             }
 
+            (TypeExpr::Mapped(mapped), b) => TypeExpr::intersection(&mapped.evaluate(scope_a)?, b, scope_a, scope_b),
+            (a, TypeExpr::Mapped(mapped)) => TypeExpr::intersection(a, &mapped.evaluate(scope_b)?, scope_a, scope_b),
+
             (TypeExpr::Type(a), TypeExpr::Type(b)) if a == b => {
                 Some((TypeExpr::Type(a.clone()), ScopePointer::clone(scope_a)))
             }

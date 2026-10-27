@@ -39,6 +39,7 @@
 //! - **Node signature**: `(inputs) -> (outputs)` or `<T>(T) -> (T)`
 //! - **Built-in**: `Any`, `Never`
 //! - **keyof**: `keyof T` — keys of a record/object type
+//! - **Mapped type**: `{[K in keyof T]: V}` — the fields of `T`, each with the type `V` where `K` is the field's key
 //! - **Type parameter**: `T`, `U`, or `#0`, `#1` (numeric ids). Prefix `!` to exclude from inference: `!T`
 //! - **Parentheses**: `(type_expr)` for grouping
 //! - **Custom types**: Parsed via [`ParsableType::parse`](parse::ParsableType::parse) (e.g. `Integer`, `Array<T>`, `{a: T}`)
