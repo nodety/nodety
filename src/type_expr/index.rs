@@ -49,20 +49,11 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 ))
             }
 
-            // see tsReference.ts
-            // @todo test this
-            // Distributes over the intersection
+            // Indexes the intersected type: distributing over the sides would also index each side with the keys
+            // only the other side has, e.g. `({a: A} & {b: B})['b']` would become `{a: A}['b'] & B`.
             Self::Intersection(a, b) => {
-                let (a_idx, a_scope) = a.index(index_type, own_scope, index_scope)?;
-                let (b_idx, b_scope) = b.index(index_type, own_scope, index_scope)?;
-
-                Some((
-                    TypeExpr::Intersection(
-                        Box::new(TypeExpr::scope_portal(a_idx, a_scope)),
-                        Box::new(TypeExpr::scope_portal(b_idx, b_scope)),
-                    ),
-                    ScopePointer::clone(own_scope),
-                ))
+                let (intersection, intersection_scope) = TypeExpr::intersection(a, b, own_scope, own_scope)?;
+                intersection.index(index_type, &intersection_scope, index_scope)
             }
 
             Self::Operation { a, b, operator } => {
