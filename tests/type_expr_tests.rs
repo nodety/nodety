@@ -430,6 +430,16 @@ fn test_normalize_nested_index() {
     assert_eq!(deep.normalize(&scope), expr("String"));
 }
 
+/// An intersection is indexed as the intersected type, not per side: a side without the key mustn't contribute its
+/// missing-key type (in Graphite `Unit`, which turned `({a: Integer} & {b: String})['b']` into `Never`).
+#[test]
+fn test_normalize_index_of_intersection() {
+    let scope = ScopePointer::<DemoType>::new_root();
+    assert_eq!(expr("({a: Integer} & {b: String})['b']").normalize(&scope), expr("String"));
+    assert_eq!(expr("({a: Integer} & {b: String})['a']").normalize(&scope), expr("Integer"));
+    assert_eq!(expr("({a: Integer | String} & {a: Integer})['a']").normalize(&scope), expr("Integer"));
+}
+
 /// A chained index whose inner access can not be resolved yet is left unevaluated, the same way a
 /// single `T['a']` on an uninferred `T` already was. It used to collapse to `Any` unconditionally.
 #[test]
