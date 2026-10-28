@@ -149,6 +149,9 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
         flows.retain(|flow| {
             flow.source.contains_uninferred(&flow.source_scope) || flow.target.contains_uninferred(&flow.target_scope)
         });
+        // Set after a strict pass without progress: parameters then stop waiting for the parameters that in turn wait for
+        // them. Such a cycle (e.g. a closure whose output depends on its input) can only be entered from outside.
+        let mut break_cycles = false;
         loop {
             // Candidate collection, in the order of the flows: picking one parameter changes the candidates of the
             // next ones, so hash order would make the result random.
@@ -188,6 +191,12 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
             for (_, candidates) in &mut all_candidates {
                 Candidate::drop_union_branch_duplicates(candidates);
             }
+            let awaited: HashMap<_, HashSet<_>> = all_candidates
+                .iter()
+                .map(|(id, candidates)| {
+                    (id.clone(), candidates.iter().flat_map(|c| awaited_params(c, &node_scopes, config)).collect())
+                })
+                .collect();
             let mut progress = false;
 
             // Candidate picking
@@ -204,7 +213,13 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
                 if !step.allow_uninferred {
                     // Picking from only the inferred candidates would commit the param to a partial view of its flows.
                     // Once the pending candidates get inferred, they might not fit the picked type anymore.
-                    if candidates.iter().any(|candidate| awaits_inference(candidate, &node_scopes, config)) {
+                    let blocks = |awaited_id: &GlobalParameterId<T>| {
+                        !break_cycles || !awaits_transitively(awaited_id, &global_id, &awaited)
+                    };
+                    if candidates
+                        .iter()
+                        .any(|candidate| awaited_params(candidate, &node_scopes, config).iter().any(blocks))
+                    {
                         continue;
                     }
                     candidates.retain(|candidate| !candidate.t.contains_uninferred(&candidate.scope));
@@ -229,10 +244,15 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
                 }
             }
             if !progress {
-                // The current stage didn't produce any progress.
-                // Move on to the next step.
-                break;
+                if step.allow_uninferred || break_cycles {
+                    // The current stage didn't produce any progress.
+                    // Move on to the next step.
+                    break;
+                }
+                break_cycles = true;
+                continue;
             }
+            break_cycles = false;
         }
     }
 }
@@ -255,13 +275,13 @@ fn flow_scopes<T: Type>(flows: &[Flow<T>]) -> HashSet<ScopePointer<T>> {
     scopes
 }
 
-/// Tests if the candidate references an uninferred parameter that might still get inferred during this inference.
-fn awaits_inference<T: Type>(
+/// The uninferred parameters the candidate references that might still get inferred during this inference.
+fn awaited_params<T: Type>(
     candidate: &Candidate<T>,
     node_scopes: &HashSet<ScopePointer<T>>,
     config: &InferenceConfig<T>,
-) -> bool {
-    let mut awaits = false;
+) -> Vec<GlobalParameterId<T>> {
+    let mut awaited = Vec::new();
     candidate.t.traverse(
         &candidate.scope,
         &mut |expr, traverse_scope, _is_tl_union| {
@@ -275,11 +295,32 @@ fn awaits_inference<T: Type>(
                 return;
             }
             let global_id = GlobalParameterId { scope: param_scope, local_id: *param_id };
-            awaits |= config.restrictions.as_ref().is_none_or(|restrictions| restrictions.contains(&global_id));
+            if config.restrictions.as_ref().is_none_or(|restrictions| restrictions.contains(&global_id)) {
+                awaited.push(global_id);
+            }
         },
         false,
     );
-    awaits
+    awaited
+}
+
+/// Tests if `from` waits for `to`, directly or through other uninferred parameters.
+fn awaits_transitively<T: Type>(
+    from: &GlobalParameterId<T>,
+    to: &GlobalParameterId<T>,
+    awaited: &HashMap<GlobalParameterId<T>, HashSet<GlobalParameterId<T>>>,
+) -> bool {
+    let mut visited = HashSet::new();
+    let mut pending = vec![from];
+    while let Some(id) = pending.pop() {
+        if id == to {
+            return true;
+        }
+        if visited.insert(id) && !id.scope.is_inferred(&id.local_id) {
+            pending.extend(awaited.get(id).into_iter().flatten());
+        }
+    }
+    false
 }
 
 impl<T: Type> Nodety<T> {

@@ -5,6 +5,7 @@ use maplit::btreemap;
 use nodety::{
     demo_type::DemoType,
     inference::{InferenceConfig, InferenceStep},
+    nodety::{Edge, Node},
     scope::LocalParamID,
     type_expr::{ScopedTypeRef, TypeExpr},
 };
@@ -641,4 +642,23 @@ fn candidates_without_a_common_supertype_infer_their_union() {
     let t = inferred_t(&engine, 2);
     assert!(t.supertype_of(&expr("Integer | 'b'"), &root(), &root()).is_supertype(), "{t:?}");
     assert!(!t.supertype_of(&expr("Float"), &root(), &root()).is_supertype(), "{t:?}");
+}
+
+/// A closure whose output depends on its input: `T` waits for `M` (closure output) and `M` for `T` (closure input).
+/// The cycle is entered from the data outside it.
+///
+///                 <T>
+///  | Integer| --- |T  T|
+///                 |  | () -> (T) | --- |<M>(M) -> (M extends Integer ? Integer : Float)| --- |(T) -> ()|  |
+#[test]
+fn a_cycle_through_a_closure_infers_from_outside_the_cycle() {
+    let mut engine = graph(vec![sig_u("() -> (Integer)"), sig_u("<T>(T) -> (T)")], vec![(0, 1, 0, 0)]);
+    let parent = Some(NodeIndex::from(1));
+    let closure = ["() -> (T)", "<M extends Integer | Float>(M) -> (M extends Integer ? Integer : Float)", "(T) -> ()"]
+        .map(|signature| engine.add_node(Node { signature: sig_u(signature), parent, ..Default::default() }).unwrap());
+    engine.add_edge(closure[0], closure[1], Edge { source_port: 0, target_port: 0 }).unwrap();
+    engine.add_edge(closure[1], closure[2], Edge { source_port: 0, target_port: 0 }).unwrap();
+
+    assert_eq!(inferred_t(&engine, 1), Type(Integer));
+    assert!(engine.validate(&engine.infer(&InferenceConfig::default())).is_empty());
 }
