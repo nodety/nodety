@@ -208,6 +208,61 @@ fn test_intersection_different_types_is_never() {
 }
 
 #[test]
+fn test_intersection_of_a_type_and_its_subtype_is_the_subtype() {
+    let scope = ScopePointer::<DemoType>::new_root();
+    for (a, b, expected) in
+        [("Comparable", "Integer", "Integer"), ("Integer", "Comparable", "Integer"), ("String", "\"a\"", "\"a\"")]
+    {
+        let (result, _) = TypeExpr::intersection(&expr(a), &expr(b), &scope, &scope).unwrap();
+        assert_eq!(result.normalize(&scope), expr(expected), "{a} & {b}");
+    }
+}
+
+#[test]
+fn test_intersection_parent_accepts_values_of_both_parts() {
+    for (parent_str, child_str) in [("Comparable & Integer", "Integer"), ("String & \"a\"", "\"a\"")] {
+        let parent = expr(parent_str);
+        let child = expr(child_str);
+        assert!(parent.supertype_of_naive(&child).is_supertype(), "{parent_str} doesn't take {child_str}");
+        assert!(parent.normalize_naive().supertype_of_naive(&child).is_supertype());
+    }
+}
+
+#[test]
+fn test_intersection_of_unrelated_types_uses_common_subtype() {
+    #[derive(Debug, Clone, PartialEq)]
+    struct Range(i64, i64);
+
+    impl Type for Range {
+        type Operator = nodety::NoOperator;
+
+        fn supertype_of(&self, child: &Self) -> bool {
+            self.0 <= child.0 && child.1 <= self.1
+        }
+
+        fn common_subtype(&self, other: &Self) -> Option<Self> {
+            let overlap = Range(self.0.max(other.0), self.1.min(other.1));
+            (overlap.0 <= overlap.1).then_some(overlap)
+        }
+    }
+
+    let scope = ScopePointer::<Range>::new_root();
+    let intersect = |a: Range, b: Range| {
+        let (result, _) =
+            TypeExpr::<Range>::intersection(&TypeExpr::Type(a), &TypeExpr::<Range>::Type(b), &scope, &scope).unwrap();
+        result.normalize(&scope)
+    };
+    assert_eq!(intersect(Range(0, 10), Range(5, 20)), TypeExpr::Type(Range(5, 10)));
+    assert_eq!(intersect(Range(0, 10), Range(2, 3)), TypeExpr::Type(Range(2, 3)));
+    assert_eq!(intersect(Range(0, 10), Range(11, 20)), TypeExpr::Never);
+
+    let parent =
+        TypeExpr::<Range>::Intersection(Box::new(TypeExpr::Type(Range(0, 10))), Box::new(TypeExpr::Type(Range(5, 20))));
+    assert!(parent.supertype_of_naive(&TypeExpr::<Range>::Type(Range(7, 7))).is_supertype());
+    assert!(!parent.supertype_of_naive(&TypeExpr::<Range>::Type(Range(3, 3))).is_supertype());
+}
+
+#[test]
 fn test_intersection_any_left() {
     let scope = ScopePointer::<DemoType>::new_root();
     let (result, _) = TypeExpr::intersection(&expr("Any"), &expr("Integer"), &scope, &scope).unwrap();
