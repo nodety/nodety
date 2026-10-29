@@ -78,6 +78,8 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
 
             Self::KeyOf(expr) => expr.keyof(scope),
 
+            Self::Bounded { upper, .. } => upper.keyof(scope),
+
             Self::Index { expr, index } => {
                 let (index_type, index_scope) = expr.index(index, scope, scope)?;
                 index_type.keyof(&index_scope)

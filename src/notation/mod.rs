@@ -27,6 +27,7 @@
 //!
 //! | Precedence | Syntax | Example |
 //! |------------|--------|---------|
+//! | 0 | Bounded | `A..B`, `=A` |
 //! | 1 | Conditional | `A extends B ? C : D` |
 //! | 2 | Union | `A \| B \| C` |
 //! | 3 | Intersection | `A & B & C` |
@@ -34,7 +35,14 @@
 //! | 5 | Operation | `A * B`, `A / B` (custom operators) |
 //! | 6 | Atomic | see below |
 //!
-//! ## Atomic Type Expressions
+//! ## Bounded Types
+//!
+//! `L..U` is a type `X` with `L ⊆ X ⊆ U`, `=X` is short for `X..X`. Used for record fields in parameter bounds that a
+//! node writes `L` into and reads `U` from: `<C extends {warnings: Integer..Integer | Unit}>(Array<C>) -> (Array<C>)`.
+//! Bounds can't be bounded themselves without parentheses: `A | B..C | D` is `(A | B)..(C | D)`.
+//! `..` does not clash with variadic ports (`...Rest`) because those start a port, while `..` follows a type.
+//!
+//! //! ## Atomic Type Expressions
 //!
 //! - **Node signature**: `(inputs) -> (outputs)` or `<T>(T) -> (T)`
 //! - **Built-in**: `Any`, `Never`

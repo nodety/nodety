@@ -103,6 +103,8 @@ where
                         (element.clone(), element.clone()).prop_map(|(a, b)| TypeExpr::Union(Box::new(a), Box::new(b))),
                         (element.clone(), element.clone())
                             .prop_map(|(a, b)| TypeExpr::Intersection(Box::new(a), Box::new(b))),
+                        (element.clone(), element.clone()).prop_map(|(lower, upper)| TypeExpr::bounded(lower, upper)),
+                        element.clone().prop_map(TypeExpr::invariant),
                         (element.clone(), element.clone()).prop_map(|(a, b)| TypeExpr::Union(Box::new(a), Box::new(b))),
                         (element.clone(), element.clone(), element.clone(), element.clone()).prop_map(
                             |(t_test, t_test_bound, t_then, t_else)| TypeExpr::Conditional(Box::new(Conditional {

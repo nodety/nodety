@@ -243,6 +243,23 @@ impl<T: FormattableType, R: UnscopedRef> TypeExpr<T, R> {
                 }
                 Ok(())
             }
+            Self::Bounded { lower, upper } => {
+                if atomic {
+                    write!(f, "(")?;
+                }
+                if lower == upper {
+                    write!(f, "=")?;
+                    upper.format_type(f, upper.is_bounded())?;
+                } else {
+                    lower.format_type(f, lower.is_bounded())?;
+                    write!(f, "..")?;
+                    upper.format_type(f, upper.is_bounded())?;
+                }
+                if atomic {
+                    write!(f, ")")?;
+                }
+                Ok(())
+            }
             Self::Never => Ok(write!(f, "Never")?),
             Self::NodeSignature(sig) => sig.format_type_notation(f),
             Self::PortTypes(ports) => {

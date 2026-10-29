@@ -44,14 +44,17 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
             // If any of the two types is never, then this type is equivalent to the other type (even if that type is never as well).
             // Similarly if any of the two types is any, the result type is also any.
             // If a and b are equal, then simply return a.
+            // Bounded types are constraints, not sets of values: `Integer..Any` accepts `Integer` but
+            // `(Integer..Any) & Integer` is `=Integer`, not `Integer`. So subtyping can't simplify them here.
             Self::Union(a, b) => {
                 if a == b {
                     return a.normalize(&scope);
                 }
-                if a.supertype_of(b, &scope, &scope).is_supertype() {
+                let bounded = a.contains_bounded() || b.contains_bounded();
+                if !bounded && a.supertype_of(b, &scope, &scope).is_supertype() {
                     return a.normalize(&scope);
                 }
-                if b.supertype_of(a, &scope, &scope).is_supertype() {
+                if !bounded && b.supertype_of(a, &scope, &scope).is_supertype() {
                     return b.normalize(&scope);
                 }
                 if a.is_never_forever(&scope) {
@@ -71,10 +74,11 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 if a == b {
                     return a.normalize(&scope);
                 }
-                if a.supertype_of(b, &scope, &scope).is_supertype() {
+                let bounded = a.contains_bounded() || b.contains_bounded();
+                if !bounded && a.supertype_of(b, &scope, &scope).is_supertype() {
                     return b.normalize(&scope);
                 }
-                if b.supertype_of(a, &scope, &scope).is_supertype() {
+                if !bounded && b.supertype_of(a, &scope, &scope).is_supertype() {
                     return a.normalize(&scope);
                 }
                 if a.is_any_forever(&scope) {
@@ -94,6 +98,15 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
             }
 
             Self::Type(t) => TypeExpr::Type(t.clone()),
+
+            // `Never..U` is just `U`.
+            Self::Bounded { lower, upper } => {
+                let upper = upper.normalize(&scope);
+                if lower.is_never_forever(&scope) {
+                    return upper;
+                }
+                TypeExpr::bounded(lower.normalize(&scope), upper)
+            }
 
             Self::Conditional(conditional) => {
                 if let Some(distributed) = conditional.distribute(&scope) {
@@ -160,6 +173,20 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 };
                 index_type.normalize(&index_scope)
             }
+        }
+    }
+
+    /// Tests if `self` has a [TypeExpr::Bounded] in its structure, not looking into type parameters.
+    fn contains_bounded(&self) -> bool {
+        match self {
+            Self::Bounded { .. } => true,
+            Self::Ref(r) => match r.view() {
+                ScopedRefView::ScopedExpr { expr, .. } => expr.contains_bounded(),
+                ScopedRefView::Param(_) => false,
+            },
+            Self::Union(a, b) | Self::Intersection(a, b) => a.contains_bounded() || b.contains_bounded(),
+            Self::Constructor { parameters, .. } => parameters.values().any(Self::contains_bounded),
+            _ => false,
         }
     }
 

@@ -56,6 +56,8 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 intersection.index(index_type, &intersection_scope, index_scope)
             }
 
+            Self::Bounded { upper, .. } => upper.index(index_type, own_scope, index_scope),
+
             Self::Operation { a, b, operator } => {
                 let a_normalized = a.normalize_concrete(own_scope)?;
                 let b_normalized = b.normalize_concrete(own_scope)?;
