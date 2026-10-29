@@ -646,7 +646,10 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
     ///
     /// That is if it:
     /// - normalizes to either a concrete [Type] that returns true for [Type::optional_in_constructor]
+    /// - or to [TypeExpr::Any] while [Type::any_optional_in_constructor] returns true
     /// - or it normalizes to a union with at least one such type.
+    ///
+    /// Uninferred type parameters are not optional.
     ///
     /// Only ever called on a single (missing) constructor parameter, so widening it here (rather
     /// than threading `R` through `traverse`/`traverse_union`, which inline already-scoped inferred
@@ -660,11 +663,11 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
         let scoped: ScopedTypeExpr<T> = self.clone().into_scoped();
         let mut is_optional = false;
         scoped.traverse_union(scope, &mut |traversal_expr, traversal_scope| {
-            if let Some(t) = traversal_expr.normalize_to_type(traversal_scope)
-                && t.optional_in_constructor()
-            {
-                is_optional = true;
-            }
+            is_optional |= match traversal_expr.normalize(traversal_scope) {
+                TypeExpr::Type(t) => t.optional_in_constructor(),
+                TypeExpr::Any => T::any_optional_in_constructor(),
+                _ => false,
+            };
         });
         is_optional
     }

@@ -102,7 +102,8 @@ pub struct ValidationError<T: Type> {
 
 impl<T: Type> Nodety<T> {
     /// # Validates
-    /// - All required inputs either have a default port or an edge
+    /// - All required inputs either have a default port or an edge.
+    ///   Inputs whose type is optional (see [TypeExpr::is_optional_in_constructor]) are not required.
     /// - All inputs have at most one edge
     /// - Variadic inputs are continuous. Or only interrupted by default types
     /// - All nodes receive their required tags
@@ -114,7 +115,7 @@ impl<T: Type> Nodety<T> {
 
         errors.extend(self.validate_tags());
 
-        errors.extend(self.validate_required_inputs_set());
+        errors.extend(self.validate_required_inputs_set(scopes));
 
         errors.extend(self.validate_types(scopes));
 
@@ -240,8 +241,8 @@ impl<T: Type> Nodety<T> {
     /// # Validates
     /// 1. All inputs have at most one edge
     /// 2. All required inputs either have a default port or an edge
-    /// 3. Variadic inputs are continuous. Or only interrupted by default types
-    fn validate_required_inputs_set(&self) -> Vec<ValidationError<T>> {
+    /// 3. Variadic inputs are continuous. Or only interrupted by default types or optional inputs
+    fn validate_required_inputs_set(&self, scopes: &Scopes<T>) -> Vec<ValidationError<T>> {
         let mut errors = Vec::new();
         for (node_idx, node) in self.program.node_references() {
             let mut populated: HashSet<usize> = HashSet::new();
@@ -267,8 +268,15 @@ impl<T: Type> Nodety<T> {
                 });
                 continue;
             };
-            for (port_idx, _port_type) in ports.ports.iter().enumerate() {
-                if !populated.contains(&port_idx) && !node.signature.default_input_types.contains_key(&port_idx) {
+            let is_required = |port_idx: usize| {
+                !populated.contains(&port_idx)
+                    && !node.signature.default_input_types.contains_key(&port_idx)
+                    && !scopes.get(&node_idx).is_some_and(|scope| {
+                        ports.get_port_type(port_idx).is_some_and(|t| t.is_optional_in_constructor(scope))
+                    })
+            };
+            for port_idx in 0..ports.ports.len() {
+                if is_required(port_idx) {
                     errors.push(ValidationError {
                         location: GraphLocation::InputPort { node_idx: node_idx.index(), input_idx: port_idx },
                         kind: ValidationErrorKind::EdgeMissingOnInput,
@@ -278,15 +286,8 @@ impl<T: Type> Nodety<T> {
 
             // 3
             if let Some(max) = populated.iter().max() {
-                let TypeExpr::PortTypes(input_ports) = &node.signature.inputs else {
-                    errors.push(ValidationError {
-                        location: GraphLocation::InputPort { node_idx: node_idx.index(), input_idx: 0 },
-                        kind: ValidationErrorKind::NonPortTypesIO,
-                    });
-                    continue;
-                };
-                for port_idx in (input_ports.ports.len())..=*max.min(&input_ports.max_len()) {
-                    if !populated.contains(&port_idx) && !node.signature.default_input_types.contains_key(&port_idx) {
+                for port_idx in (ports.ports.len())..=*max.min(&ports.max_len()) {
+                    if is_required(port_idx) {
                         errors.push(ValidationError {
                             location: GraphLocation::InputPort { node_idx: node_idx.index(), input_idx: port_idx },
                             kind: ValidationErrorKind::EdgeMissingOnInput,
