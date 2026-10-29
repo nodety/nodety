@@ -224,4 +224,14 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
     fn optional_in_constructor(&self) -> bool {
         false
     }
+
+    /// # Returns
+    /// true if a constructor parameter (and a node input) whose type resolves to [TypeExpr::Any] is not required,
+    /// like [Type::optional_in_constructor] for concrete types.
+    ///
+    /// Return true if [TypeExpr::Any] includes a type for which [Type::optional_in_constructor] returns true.
+    /// Uninferred type parameters stay required either way.
+    fn any_optional_in_constructor() -> bool {
+        false
+    }
 }
