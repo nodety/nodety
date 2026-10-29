@@ -42,7 +42,7 @@
 //! Bounds can't be bounded themselves without parentheses: `A | B..C | D` is `(A | B)..(C | D)`.
 //! `..` does not clash with variadic ports (`...Rest`) because those start a port, while `..` follows a type.
 //!
-//! //! ## Atomic Type Expressions
+//! ## Atomic Type Expressions
 //!
 //! - **Node signature**: `(inputs) -> (outputs)` or `<T>(T) -> (T)`
 //! - **Built-in**: `Any`, `Never`
