@@ -121,7 +121,22 @@ pub fn parse_type_parameter(input: &str) -> IResult<&str, (LocalParamID, bool)> 
         .parse(input)
 }
 
+/// `=X`, `L..U` or an unbounded type expression.
+///
+/// `..` binds loosest and the bounds can't be bounded themselves, so `A | B..C | D` reads as
+/// `(A | B)..(C | D)`. Parses the lower bound only once so that nested records stay linear.
 pub fn parse_type_expr<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
+    if let Ok((input, t)) = preceded(ws0(char('=')), parse_unbounded_type_expr::<T, R>).parse(input) {
+        return Ok((input, TypeExpr::invariant(t)));
+    }
+    let (input, lower) = parse_unbounded_type_expr(input)?;
+    match preceded(ws0(tag("..")), parse_unbounded_type_expr::<T, R>).parse(input) {
+        Ok((input, upper)) => Ok((input, TypeExpr::bounded(lower, upper))),
+        Err(_) => Ok((input, lower)),
+    }
+}
+
+fn parse_unbounded_type_expr<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
     alt((
         parse_type_expr_conditional,
         parse_type_expr_union,

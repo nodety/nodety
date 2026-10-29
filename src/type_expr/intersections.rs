@@ -20,6 +20,32 @@ impl<T: Type, Ra: AsScopedRef<T>> TypeExpr<T, Ra> {
             (TypeExpr::Never, _) => Some((TypeExpr::Never, ScopePointer::clone(scope_a))),
             (_, TypeExpr::Never) => Some((TypeExpr::Never, ScopePointer::clone(scope_b))),
 
+            // A plain type `X` is the bound `Never..X`.
+            (
+                TypeExpr::Bounded { lower: lower_a, upper: upper_a },
+                TypeExpr::Bounded { lower: lower_b, upper: upper_b },
+            ) => Some((
+                TypeExpr::bounded(
+                    lower_a.as_ref().clone().into_scoped().union_with(scope_portal(lower_b, scope_b)),
+                    upper_a.as_ref().clone().into_scoped().intersection_with(scope_portal(upper_b, scope_b)),
+                ),
+                ScopePointer::clone(scope_a),
+            )),
+            (TypeExpr::Bounded { lower, upper }, b) => Some((
+                TypeExpr::bounded(
+                    lower.as_ref().clone().into_scoped(),
+                    upper.as_ref().clone().into_scoped().intersection_with(scope_portal(b, scope_b)),
+                ),
+                ScopePointer::clone(scope_a),
+            )),
+            (a, TypeExpr::Bounded { lower, upper }) => Some((
+                TypeExpr::bounded(
+                    lower.as_ref().clone().into_scoped(),
+                    scope_portal(a, scope_a).intersection_with(upper.as_ref().clone().into_scoped()),
+                ),
+                ScopePointer::clone(scope_b),
+            )),
+
             // References. Ordering mirrors the flat match this used to be:
             // type params on either side first, then a's scope portal, then b's.
             (TypeExpr::Ref(ref_a), TypeExpr::Ref(ref_b)) => match (ref_a.view(), ref_b.view()) {
@@ -195,6 +221,10 @@ impl<T: Type, Ra: AsScopedRef<T>> TypeExpr<T, Ra> {
             (_, TypeExpr::Type(_)) => Some((TypeExpr::Never, ScopePointer::clone(scope_a))),
         }
     }
+}
+
+fn scope_portal<T: Type, R: AsScopedRef<T>>(expr: &TypeExpr<T, R>, scope: &ScopePointer<T>) -> ScopedTypeExpr<T> {
+    TypeExpr::scope_portal(expr.clone().into_scoped(), ScopePointer::clone(scope))
 }
 
 #[cfg(test)]

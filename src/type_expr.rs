@@ -122,6 +122,16 @@ pub enum TypeExpr<T: Type, R: TypeRef = ParamRef> {
     /// Checkout [this doc](https://www.typescriptlang.org/docs/handbook/2/conditional-types.html) for a good guide on the ts conditionals.
     Conditional(Box<Conditional<T, R>>),
 
+    /// A type `X` with `lower ⊆ X ⊆ upper`, written `lower..upper` or `=X` when both are `X`.
+    ///
+    /// Meant for record fields in type parameter bounds: a node that writes `lower` into a field
+    /// and reads `upper` from it requires `{field: lower..upper}`. As a parent in subtyping it
+    /// accepts a child `B` iff `lower ⊆ B ⊆ upper`. Everywhere else it behaves like `upper`.
+    Bounded {
+        lower: Box<TypeExpr<T, R>>,
+        upper: Box<TypeExpr<T, R>>,
+    },
+
     /// The universal supertype encompassing all types — and the bane of every linter.
     #[default]
     Any,
@@ -207,12 +217,26 @@ impl<T: Type, R: TypeRef> TypeExpr<T, R> {
         }
     }
 
+    pub fn is_bounded(&self) -> bool {
+        matches!(self, Self::Bounded { .. })
+    }
+
     pub fn union_with(self, other: Self) -> Self {
         TypeExpr::Union(Box::new(self), Box::new(other))
     }
 
     pub fn intersection_with(self, other: Self) -> Self {
         TypeExpr::Intersection(Box::new(self), Box::new(other))
+    }
+
+    /// `lower..upper`: a type that is a supertype of `lower` and a subtype of `upper`.
+    pub fn bounded(lower: Self, upper: Self) -> Self {
+        TypeExpr::Bounded { lower: Box::new(lower), upper: Box::new(upper) }
+    }
+
+    /// `=t`: exactly `t`, neither narrower nor wider.
+    pub fn invariant(t: Self) -> Self {
+        Self::bounded(t.clone(), t)
     }
 
     /// Creates a union from a list of types.
@@ -295,6 +319,7 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 key.is_never(&key_scope)
             }
             Self::Conditional(conditional) => conditional.distribute(scope)?.is_never(scope),
+            Self::Bounded { upper, .. } => upper.is_never(scope),
             Self::Ref(r) => match r.view() {
                 ScopedRefView::Param(ParamRef { param_id, .. }) => {
                     let (registered, param_scope) = scope.lookup(param_id)?;
@@ -350,6 +375,7 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
             }
 
             Self::Conditional(conditional) => conditional.distribute(scope)?.is_any(scope),
+            Self::Bounded { upper, .. } => upper.is_any(scope),
 
             Self::Ref(r) => match r.view() {
                 ScopedRefView::Param(ParamRef { param_id, .. }) => {

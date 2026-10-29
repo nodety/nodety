@@ -108,6 +108,11 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                 b.traverse_mut(&scope, walker, false);
             }
 
+            Self::Bounded { lower, upper } => {
+                lower.traverse_mut(&scope, walker, false);
+                upper.traverse_mut(&scope, walker, false);
+            }
+
             Self::Type(_) => (),
 
             // Type variables are immutable!
@@ -176,6 +181,11 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
             Self::Intersection(a, b) => {
                 a.traverse(&scope, walker, false);
                 b.traverse(&scope, walker, false);
+            }
+
+            Self::Bounded { lower, upper } => {
+                lower.traverse(&scope, walker, false);
+                upper.traverse(&scope, walker, false);
             }
 
             Self::Type(_) => (),
@@ -250,6 +260,15 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
             (own, Self::Union(other_a, other_b)) => {
                 own.traverse_parallel(other_a, &own_scope, &other_scope, infer_other, walker);
                 own.traverse_parallel(other_b, &own_scope, &other_scope, infer_other, walker);
+            }
+
+            (Self::Bounded { lower, upper }, other) => {
+                lower.traverse_parallel(other, &own_scope, &other_scope, infer_other, walker);
+                upper.traverse_parallel(other, &own_scope, &other_scope, infer_other, walker);
+            }
+
+            (own, Self::Bounded { upper, .. }) => {
+                own.traverse_parallel(upper, &own_scope, &other_scope, infer_other, walker);
             }
 
             (Self::Operation { a, b, operator }, other) => {

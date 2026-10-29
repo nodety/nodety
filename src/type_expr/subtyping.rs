@@ -160,6 +160,10 @@ pub enum NoSupertypeLayerReason {
     ConstructorArity,
     /// Constructor: inner type or parameter comparison failed.
     ConstructorParam,
+    /// Bounded `L..U`: the child is wider than `U`.
+    BoundedUpper,
+    /// Bounded `L..U`: the child is narrower than `L`.
+    BoundedLower,
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -206,6 +210,13 @@ pub struct NoSupertypeLayer<T: Type> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DetailedSupertypeDiagnostics<T: Type> {
     layers: Vec<NoSupertypeLayer<T>>,
+}
+
+impl<T: Type> DetailedSupertypeDiagnostics<T> {
+    /// Innermost mismatch first.
+    pub fn layers(&self) -> &[NoSupertypeLayer<T>] {
+        &self.layers
+    }
 }
 
 impl<T: Type> SupertypeDiagnostics<T> for DetailedSupertypeDiagnostics<T> {
@@ -294,6 +305,22 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
         let (child, child_scope) = child.build_inferred_child_scope(parent.as_ref(), child_scope, &parent_scope);
 
         match (parent.as_ref(), child.as_ref()) {
+            // A bounded child behaves like its upper bound. First so that a bounded parent compares
+            // against it.
+            (parent, TypeExpr::Bounded { upper, .. }) => {
+                parent.supertype_of_impl::<D, R2>(upper, &parent_scope, &child_scope)
+            }
+
+            // Before the special types: `Never` is no child of `Integer..Any`.
+            (parent @ TypeExpr::Bounded { lower, upper }, child) => {
+                upper.supertype_of_impl::<D, R2>(child, &parent_scope, &child_scope).map_err(|e| {
+                    e.map_unrelated(|d| d.add_layer(parent, child, Some(NoSupertypeLayerReason::BoundedUpper)))
+                })?;
+                child.supertype_of_impl::<D, R>(lower, &child_scope, &parent_scope).map_err(|e| {
+                    e.map_unrelated(|d| d.add_layer(parent, child, Some(NoSupertypeLayerReason::BoundedLower)))
+                })
+            }
+
             // Special types
             (TypeExpr::Any, _) => Ok(()),
             (parent, TypeExpr::Any) => match parent.is_any(&parent_scope) {
@@ -624,7 +651,12 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
     /// Only ever called on a single (missing) constructor parameter, so widening it here (rather
     /// than threading `R` through `traverse`/`traverse_union`, which inline already-scoped inferred
     /// type parameters and so can't stay generic over `R`) is a small, bounded cost.
+    ///
+    /// A bounded `L..U` is optional if `L` is: the field may only be missing if its writer accepts that.
     pub fn is_optional_in_constructor(&self, scope: &ScopePointer<T>) -> bool {
+        if let TypeExpr::Bounded { lower, .. } = self {
+            return lower.is_optional_in_constructor(scope);
+        }
         let scoped: ScopedTypeExpr<T> = self.clone().into_scoped();
         let mut is_optional = false;
         scoped.traverse_union(scope, &mut |traversal_expr, traversal_scope| {
