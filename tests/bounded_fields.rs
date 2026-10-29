@@ -1,6 +1,6 @@
 //! Bounded record fields (`L..U`, `=X`) in type parameter bounds.
 //!
-//! The rule nodes take `Array<C>` where graphite takes `Table<C>`.
+//! The nodes pass records through as `Array<C>`, standing in for a table type `Table<C>`.
 use crate::common::{expr, expr_u, graph, sig_u};
 use assert_matches::assert_matches;
 use nodety::{
@@ -18,13 +18,12 @@ use petgraph::graph::NodeIndex;
 
 mod common;
 
-const WARNINGS_RULE: &str =
-    "<C extends {warnings: Integer..Integer | Unit, false_starts: Integer}>(Array<C>) -> (Array<C>)";
-const INVARIANT_RULE: &str = "<C extends {name: =String}>(Array<C>) -> (Array<C>)";
+const SCORE_NODE: &str = "<C extends {score: Integer..Integer | Unit, id: Integer}>(Array<C>) -> (Array<C>)";
+const INVARIANT_NODE: &str = "<C extends {name: =String}>(Array<C>) -> (Array<C>)";
 
 #[test]
 fn notation_roundtrip() {
-    for notation in ["{warnings: Integer..Integer | Unit}", "{name: =String}", "{a: =Integer | Unit, b: Integer}"] {
+    for notation in ["{score: Integer..Integer | Unit}", "{name: =String}", "{a: =Integer | Unit, b: Integer}"] {
         assert_eq!(expr_u(notation).to_string(), notation);
     }
     assert_eq!(
@@ -79,79 +78,72 @@ fn normalization_keeps_bounds() {
 #[test]
 fn exact_type_passes() {
     let (engine, scopes) =
-        infer(vec!["() -> (Array<{name: String}>)", INVARIANT_RULE, "(Array<{name: String}>) -> ()"]);
+        infer(vec!["() -> (Array<{name: String}>)", INVARIANT_NODE, "(Array<{name: String}>) -> ()"]);
     assert_eq!(engine.validate(&scopes), []);
     assert_eq!(inferred_c(&scopes), expr("{name: String}"));
 }
 
 #[test]
 fn narrower_fails_invariance() {
-    let (engine, scopes) = infer(vec!["() -> (Array<{name: 'a'}>)", INVARIANT_RULE]);
+    let (engine, scopes) = infer(vec!["() -> (Array<{name: 'a'}>)", INVARIANT_NODE]);
     let diagnostics = type_mismatch_at_edge_0(engine.validate(&scopes));
     assert_has_reason(&diagnostics, NoSupertypeLayerReason::BoundedLower);
 }
 
 #[test]
 fn wider_fails_invariance() {
-    let (engine, scopes) = infer(vec!["() -> (Array<{name: String | Unit}>)", INVARIANT_RULE]);
+    let (engine, scopes) = infer(vec!["() -> (Array<{name: String | Unit}>)", INVARIANT_NODE]);
     let diagnostics = type_mismatch_at_edge_0(engine.validate(&scopes));
     assert_has_reason(&diagnostics, NoSupertypeLayerReason::BoundedUpper);
 }
 
 #[test]
 fn missing_column_fails() {
-    let (engine, scopes) = infer(vec!["() -> (Array<{false_starts: Integer}>)", WARNINGS_RULE]);
+    let (engine, scopes) = infer(vec!["() -> (Array<{id: Integer}>)", SCORE_NODE]);
     let diagnostics = type_mismatch_at_edge_0(engine.validate(&scopes));
     assert_has_reason(&diagnostics, NoSupertypeLayerReason::ConstructorArity);
 }
 
 #[test]
 fn extra_columns_pass() {
-    let (engine, scopes) = infer(vec!["() -> (Array<{name: String, rank: Integer}>)", INVARIANT_RULE]);
+    let (engine, scopes) = infer(vec!["() -> (Array<{name: String, rank: Integer}>)", INVARIANT_NODE]);
     assert_eq!(engine.validate(&scopes), []);
     assert_eq!(inferred_c(&scopes), expr("{name: String, rank: Integer}"));
 }
 
-/// The owner insists that both column types work.
+/// A field read as `Integer | Unit` may be either.
 #[test]
 fn integer_and_optional_integer_pass() {
-    for warnings in ["Integer", "Integer | Unit"] {
-        let source = format!("() -> (Array<{{warnings: {warnings}, false_starts: Integer, name: String}}>)");
-        let (engine, scopes) = infer(vec![&source, WARNINGS_RULE]);
-        assert_eq!(engine.validate(&scopes), [], "{warnings}");
-        assert_eq!(
-            inferred_c(&scopes),
-            expr(&format!("{{warnings: {warnings}, false_starts: Integer, name: String}}")),
-            "{warnings}"
-        );
+    for score in ["Integer", "Integer | Unit"] {
+        let source = format!("() -> (Array<{{score: {score}, id: Integer, name: String}}>)");
+        let (engine, scopes) = infer(vec![&source, SCORE_NODE]);
+        assert_eq!(engine.validate(&scopes), [], "{score}");
+        assert_eq!(inferred_c(&scopes), expr(&format!("{{score: {score}, id: Integer, name: String}}")), "{score}");
     }
 }
 
 #[test]
 fn marker_absent_downstream() {
-    let (engine, scopes) = infer(vec![
-        "() -> (Array<{warnings: Integer, false_starts: Integer}>)",
-        WARNINGS_RULE,
-        "<D>(Array<D>) -> (Array<D>)",
-    ]);
+    let (engine, scopes) =
+        infer(vec!["() -> (Array<{score: Integer, id: Integer}>)", SCORE_NODE, "<D>(Array<D>) -> (Array<D>)"]);
     assert_eq!(engine.validate(&scopes), []);
     let downstream = scopes[&NodeIndex::new(2)].lookup_inferred(&LocalParamID::from('D')).unwrap();
     assert!(!contains_bounded(&downstream), "{downstream:?}");
 }
 
-/// Two rule nodes with different requirements stacked between a source that has both columns and a sink that needs
+/// Two nodes with different requirements stacked between a source that has both columns and a sink that needs
 /// all of them.
 #[test]
-fn stacked_rules_combine() {
-    let source = "() -> (Array<{false_starts: Integer, dqs: String, name: String}>)";
-    let rule_a = "<C extends {false_starts: Integer}>(Array<C>) -> (Array<C>)";
-    let rule_b = "<C extends {dqs: =String}>(Array<C>) -> (Array<C>)";
-    let sink = "(Array<{false_starts: Integer, dqs: String, name: String}>) -> ()";
-    let (engine, scopes) = infer(vec![source, rule_a, rule_b, sink]);
+fn stacked_nodes_combine() {
+    let source = "() -> (Array<{id: Integer, note: String, name: String}>)";
+    let node_a = "<C extends {id: Integer}>(Array<C>) -> (Array<C>)";
+    let node_b = "<C extends {note: =String}>(Array<C>) -> (Array<C>)";
+    let sink = "(Array<{id: Integer, note: String, name: String}>) -> ()";
+    let (engine, scopes) = infer(vec![source, node_a, node_b, sink]);
     assert_eq!(engine.validate(&scopes), []);
 }
 
-/// Infers like graphite does: parameters without a valid candidate fall back to their bound.
+/// Infers, then lets parameters without a valid candidate fall back to their bound.
 fn infer(signatures: Vec<&str>) -> (Nodety<DemoType>, Scopes<DemoType>) {
     let edges = (1..signatures.len()).map(|target| (target - 1, target, 0, 0)).collect();
     let engine = graph(signatures.into_iter().map(sig_u).collect(), edges);

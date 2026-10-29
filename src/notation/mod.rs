@@ -38,7 +38,7 @@
 //! ## Bounded Types
 //!
 //! `L..U` is a type `X` with `L ⊆ X ⊆ U`, `=X` is short for `X..X`. Used for record fields in parameter bounds that a
-//! node writes `L` into and reads `U` from: `<C extends {warnings: Integer..Integer | Unit}>(Array<C>) -> (Array<C>)`.
+//! node writes `L` into and reads `U` from: `<C extends {score: Integer..Integer | Unit}>(Table<C>) -> (Table<C>)`.
 //! Bounds can't be bounded themselves without parentheses: `A | B..C | D` is `(A | B)..(C | D)`.
 //! `..` does not clash with variadic ports (`...Rest`) because those start a port, while `..` follows a type.
 //!
