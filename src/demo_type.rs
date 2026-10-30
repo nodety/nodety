@@ -211,4 +211,8 @@ impl Type for DemoType {
     fn optional_in_constructor(&self) -> bool {
         matches!(self, Self::Unit)
     }
+
+    fn optional_field_type() -> Option<Self> {
+        Some(Self::Unit)
+    }
 }

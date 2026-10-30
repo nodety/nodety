@@ -1,7 +1,7 @@
 use crate::{
     scope::{ScopePointer, type_parameter::TypeParameter},
     r#type::Type,
-    type_expr::{ScopedTypeExpr, ScopedTypeRef, TypeExpr},
+    type_expr::{ConstructorParams, ScopedTypeExpr, ScopedTypeRef, TypeExpr},
 };
 
 /// A candidate for a type parameter.
@@ -77,6 +77,14 @@ impl<T: Type> Candidate<T> {
         if upper_bounds {
             return Self::pick_meet(candidates);
         }
+        if let Some(join) = Self::join_constructors(&candidates)
+            && type_param
+                .bound
+                .as_ref()
+                .is_none_or(|bound| bound.supertype_of(&join, param_scope, &ScopePointer::new_root()).is_supertype())
+        {
+            return Some((join, ScopePointer::new_root()));
+        }
         if let Some(best_common_supertype) = Self::pick_best(&candidates) {
             return Some((best_common_supertype.t.clone(), best_common_supertype.scope.clone()));
         }
@@ -140,6 +148,18 @@ impl<T: Type> Candidate<T> {
             .map(TypeExpr::Type)
     }
 
+    /// The field-by-field join of several constructor candidates, see [Type::optional_field_type]. `None` if the type
+    /// system has no optional field type, there are fewer than two candidates or one is not a constructor.
+    fn join_constructors(candidates: &[Candidate<T>]) -> Option<ScopedTypeExpr<T>> {
+        let optional = TypeExpr::Type(T::optional_field_type()?);
+        if candidates.len() < 2 {
+            return None;
+        }
+        let mut types = candidates.iter().map(|candidate| candidate.t.normalize(&candidate.scope));
+        let first = types.next()?;
+        types.try_fold(first, |joined, t| join_constructor(&joined, &t, &optional))
+    }
+
     fn pick_best(candidates: &[Candidate<T>]) -> Option<&Candidate<T>> {
         let mut common_supertypes = Vec::new();
         for (candidate_i, candidate) in candidates.iter().enumerate() {
@@ -164,6 +184,66 @@ impl<T: Type> Candidate<T> {
         }
         Some(common_supertypes.swap_remove(0))
     }
+}
+
+/// `a` and `b` joined field by field if both are constructors of the same type, see [Type::optional_field_type].
+fn join_constructor<T: Type>(
+    a: &ScopedTypeExpr<T>,
+    b: &ScopedTypeExpr<T>,
+    optional: &ScopedTypeExpr<T>,
+) -> Option<ScopedTypeExpr<T>> {
+    let (
+        TypeExpr::Constructor { inner: inner_a, parameters: fields_a },
+        TypeExpr::Constructor { inner: inner_b, parameters: fields_b },
+    ) = (a, b)
+    else {
+        return None;
+    };
+    if inner_a != inner_b {
+        return None;
+    }
+    let with_optional =
+        |field: &ScopedTypeExpr<T>| field.clone().union_with(optional.clone()).normalize(&ScopePointer::new_root());
+    let mut fields = ConstructorParams::new();
+    for (name, field_a) in fields_a.iter() {
+        let joined = match fields_b.get(name) {
+            Some(field_b) => join_field(field_a, field_b, optional),
+            None => with_optional(field_a),
+        };
+        fields.insert(name.clone(), joined);
+    }
+    for (name, field_b) in fields_b.iter().filter(|(name, _)| !fields_a.contains_key(name)) {
+        fields.insert(name.clone(), with_optional(field_b));
+    }
+    Some(TypeExpr::Constructor { inner: inner_a.clone(), parameters: fields })
+}
+
+/// The common supertype of two field types: the joined constructors, the wider one, the type system's
+/// [Type::common_supertype] or else their union.
+fn join_field<T: Type>(
+    a: &ScopedTypeExpr<T>,
+    b: &ScopedTypeExpr<T>,
+    optional: &ScopedTypeExpr<T>,
+) -> ScopedTypeExpr<T> {
+    let root = ScopePointer::new_root();
+    if a == b {
+        return a.clone();
+    }
+    if let Some(joined) = join_constructor(a, b, optional) {
+        return joined;
+    }
+    if a.supertype_of(b, &root, &root).is_supertype() {
+        return a.clone();
+    }
+    if b.supertype_of(a, &root, &root).is_supertype() {
+        return b.clone();
+    }
+    if let (TypeExpr::Type(type_a), TypeExpr::Type(type_b)) = (a, b)
+        && let Some(common) = type_a.common_supertype(type_b)
+    {
+        return TypeExpr::Type(common);
+    }
+    a.clone().union_with(b.clone()).normalize(&root)
 }
 
 fn collect_union_arms<T: Type>(expr: &ScopedTypeExpr<T>, scope: &ScopePointer<T>) -> Vec<ScopedTypeExpr<T>> {

@@ -221,6 +221,20 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
         None
     }
 
+    /// The type that marks a constructor field as possibly missing, if the type system has one (a type for which
+    /// [Type::optional_in_constructor] is true, like `Unit`).
+    ///
+    /// With one, inference joins constructor candidates of a type parameter field by field instead of picking the one
+    /// with the fewest fields: a field all candidates have gets the common supertype of their field types, a field
+    /// only some have gets its type `| optional`. `{a: Integer, b: String}` and `{a: Float, c: Boolean}` join to
+    /// `{a: Integer | Float, b: String | Unit, c: Boolean | Unit}`, a supertype of both that keeps every field.
+    ///
+    /// # Returns
+    /// `None` (the default) keeps picking a candidate that is a supertype of the others.
+    fn optional_field_type() -> Option<Self> {
+        None
+    }
+
     /// # Returns
     /// true if this type is not required in a constructor.
     ///
