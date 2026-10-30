@@ -47,7 +47,7 @@ fn test_fields_of_variadic_inputs_join() {
     );
 }
 
-/// Constructors join parameter by parameter, so records nested in other constructors (tables of rows) join too.
+/// Constructors join parameter by parameter, so records nested in other constructors join too.
 #[test]
 fn test_records_in_constructors_join() {
     assert_joins(
