@@ -24,7 +24,7 @@ Nodety was initially designed for visual node editors but it works just as well 
 
 ```toml
 [dependencies]
-nodety = "0.1"
+nodety = "0.2"
 ```
 
 ```rust
