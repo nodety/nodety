@@ -168,3 +168,51 @@ fn test_mapped_input_rejects_a_field() {
 fn common_scope(params: &str) -> nodety::scope::Scope<nodety::demo_type::DemoType> {
     params.parse().unwrap()
 }
+
+/// `rounds` times: an override of `a` and `n`, then a generic node passing its input through, so every round's
+/// override has the previous one, inferred, as its source.
+fn override_chain(rounds: usize) -> (nodety::Nodety<nodety::demo_type::DemoType>, usize) {
+    let mut nodes = vec![sig_u("() -> ({a: Integer, b: Float, n: Integer})")];
+    let mut edges = Vec::new();
+    for round in 0..rounds {
+        let (a, n) = if round % 2 == 0 { ("String", "Float") } else { ("Integer", "Integer") };
+        nodes.push(sig_u(&format!(
+            "<T extends {{}}>(T) -> ({{[K in keyof T]: K extends 'a' ? {a} : (K extends 'n' ? {n} : (T[K]))}})"
+        )));
+        nodes.push(sig_u("<X extends {}>(X) -> (X)"));
+        edges.push((nodes.len() - 3, nodes.len() - 2, 0, 0));
+        edges.push((nodes.len() - 2, nodes.len() - 1, 0, 0));
+    }
+    nodes.push(sig_u("<X extends {}>(X) -> ()"));
+    edges.push((nodes.len() - 2, nodes.len() - 1, 0, 0));
+    let sink = nodes.len() - 1;
+    (graph(nodes, edges), sink)
+}
+
+/// A chain of overrides through generic nodes infers in time linear in its length. Inferred candidates used to be
+/// stored unevaluated, so every round evaluated all the rounds before it again, several times per field.
+#[test]
+fn test_a_chain_of_overrides_through_generic_nodes_infers_quickly() {
+    let rounds = 10;
+    let start = std::time::Instant::now();
+    let (engine, sink) = override_chain(rounds);
+    let scopes = engine.infer(&InferenceConfig::default());
+    assert_eq!(engine.validate(&scopes), []);
+    let (x, x_scope) =
+        scopes.get(&NodeIndex::from(sink as u32)).unwrap().lookup_inferred(&LocalParamID::from("X")).unwrap();
+    assert_eq!(x.normalize(&x_scope), expr("{a: Integer, b: Float, n: Integer}"));
+    // Each round used to triple the time (8 rounds: 0.75 s in release, 10 rounds: about 7 s); now milliseconds.
+    assert!(start.elapsed() < std::time::Duration::from_secs(2), "{:?}", start.elapsed());
+}
+
+#[test]
+#[ignore = "prints timings: cargo test --release --test mapped_types chain_timings -- --ignored --nocapture"]
+fn test_chain_timings() {
+    for rounds in [1, 2, 3, 4, 5, 6, 8, 16, 32] {
+        let start = std::time::Instant::now();
+        let (engine, _) = override_chain(rounds);
+        let scopes = engine.infer(&InferenceConfig::default());
+        assert_eq!(engine.validate(&scopes), []);
+        println!("{rounds} rounds: {:?}", start.elapsed());
+    }
+}
