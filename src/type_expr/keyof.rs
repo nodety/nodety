@@ -79,6 +79,8 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
             Self::KeyOf(expr) => expr.keyof(scope),
 
             Self::Bounded { upper, .. } => upper.keyof(scope),
+            // A mapped type has the keys of its source.
+            Self::Mapped(mapped) => mapped.source.keyof(scope),
 
             Self::Index { expr, index } => {
                 let (index_type, index_scope) = expr.index(index, scope, scope)?;

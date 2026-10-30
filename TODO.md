@@ -2,7 +2,6 @@
 
 - Remove petgraph dependency
 - Evaluate if keyof T and T[K] can be represented as operators
-- Mapped types
 - Build the official website with showcase
 - Add more tests for keyof
 - Add more tests for index

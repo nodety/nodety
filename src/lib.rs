@@ -18,6 +18,7 @@
 //! - intersections `{ a: Integer } & { b: String }`
 //! - keyof `keyof { a: Integer }`
 //! - index `{ a: Integer }["a"]`
+//! - homomorphic mapped types `{ [K in keyof T]: K extends "a" ? Boolean : T[K] }`
 //! - default values/types `<T>(T = Integer) -> (T)`
 //! - Rank N polymorphism (*aka parameters can have their own generics*) `(<T>(T) -> (T)) -> ()`
 //! - Custom inputs/outputs `Any -> Never`, `YourTypeA -> YourTypeB`
@@ -27,7 +28,7 @@
 //! - Propagating tags - Nodes can have and require tags. Tags propagate through the graph. This enables enforcing something like const functions in rust (a node can only be const if itself is const and all its ingoing edges are too).
 //!
 //! **Not yet supported:**
-//! - Mapped types `{ [K in keyof { a: Integer }]: K }`
+//! - Mapped types over anything but `keyof` (e.g. `{ [K in "a" | "b"]: K }`) and key remapping with `as`
 //! - infer keyword `infer T` (although this would be easy to add if needed)
 //!
 //! ## Is this for me?
