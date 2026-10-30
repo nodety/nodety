@@ -232,6 +232,13 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
                 ) else {
                     continue;
                 };
+                // A fully inferred candidate is stored normalized. Otherwise it stays a reference to the type of the
+                // node before, and resolving a type n nodes deep walks all n scopes before it, on every access.
+                let picked_candidate_type = if picked_candidate_type.contains_uninferred(&picked_candidate_scope) {
+                    picked_candidate_type
+                } else {
+                    picked_candidate_type.normalize(&picked_candidate_scope)
+                };
                 if param_scope.infer(&global_id.local_id, picked_candidate_type, picked_candidate_scope).is_ok() {
                     // println!("inferred {:?} = {:#?}", global_id.local_id, picked_candidate.t);
                     if let Some(sa) = &mut stop_after {
