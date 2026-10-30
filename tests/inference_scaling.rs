@@ -56,3 +56,17 @@ fn scaling() {
         }
     }
 }
+
+/// A record without fields normalizes to the bare record type; both are subtypes of a record whose fields are all
+/// optional. Inferred types are stored normalized, so `{}` flowing on through a generic node must still fit.
+#[test]
+fn test_an_empty_record_fits_a_record_of_optional_fields_after_a_generic_node() {
+    let mut nodety = Nodety::new();
+    let source = nodety.add_node(sig("() -> ({})")).unwrap();
+    let generic = nodety.add_node(sig("<X extends {}>(X) -> (X)")).unwrap();
+    let target = nodety.add_node(sig("({a: Integer | Unit}) -> ()")).unwrap();
+    nodety.add_edge(source, generic, Edge { source_port: 0, target_port: 0 }).unwrap();
+    nodety.add_edge(generic, target, Edge { source_port: 0, target_port: 0 }).unwrap();
+    let scopes = nodety.infer(&InferenceConfig::default());
+    assert_eq!(nodety.validate(&scopes), []);
+}

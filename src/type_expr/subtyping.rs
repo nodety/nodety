@@ -602,9 +602,10 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 }
             }
             // Treat a constructor with no args the same as its inner type.
+            // Normalization turns a constructor without args into its inner type, so the child lacks every parameter:
+            // like a constructor child, it is a subtype if the parent's parameters are all optional.
             (parent @ TypeExpr::Constructor { inner: inst_parent, parameters }, child @ TypeExpr::Type(inst_child)) => {
-                if !parameters.is_empty() {
-                    // Child has no parameters but parent has => No subtype
+                if !parameters.values().all(|parameter| parameter.is_optional_in_constructor(&parent_scope)) {
                     return Err(Unrelated(D::new(parent, child, Some(NoSupertypeLayerReason::ConstructorArity))));
                 }
                 if inst_parent.supertype_of(inst_child) { Ok(()) } else { Err(Unrelated(D::new(parent, child, None))) }
