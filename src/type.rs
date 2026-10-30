@@ -210,6 +210,17 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
         None
     }
 
+    /// The widest type that is a subtype of both `self` and `other`, if the type system has one.
+    ///
+    /// Intersections use it for two types of which neither is a supertype of the other,
+    /// e.g. the overlapping ranges `Integer<0, 10> & Integer<5, 20>` intersect to `Integer<5, 10>`.
+    ///
+    /// # Returns
+    /// `None` if the two types have no value in common; the intersection then is [TypeExpr::Never].
+    fn common_subtype(&self, _other: &Self) -> Option<Self> {
+        None
+    }
+
     /// # Returns
     /// true if this type is not required in a constructor.
     ///
