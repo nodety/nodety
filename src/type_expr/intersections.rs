@@ -118,6 +118,9 @@ impl<T: Type, Ra: AsScopedRef<T>> TypeExpr<T, Ra> {
                 TypeExpr::intersection(a, &conditional.distribute(scope_b)?, scope_a, scope_b)
             }
 
+            (TypeExpr::Mapped(mapped), b) => TypeExpr::intersection(&mapped.evaluate(scope_a)?, b, scope_a, scope_b),
+            (a, TypeExpr::Mapped(mapped)) => TypeExpr::intersection(a, &mapped.evaluate(scope_b)?, scope_a, scope_b),
+
             (TypeExpr::Type(type_a), TypeExpr::Type(type_b)) => {
                 let intersection = if type_a.supertype_of(type_b) {
                     TypeExpr::Type(type_b.clone())

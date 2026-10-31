@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 9363311fb89bfd02cb63d9181a63d475cc532cb14ba0a5e59a932fabb09abf1f # shrinks to expr = Conditional(Conditional { t_test: Mapped(Mapped { key_param: LocalParamID(0), source: Any, value: Any }), t_test_bound: Any, t_then: Any, t_else: Any, infer: {} })
