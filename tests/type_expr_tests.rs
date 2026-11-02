@@ -1,5 +1,4 @@
 use crate::common::{expr, expr_u, sig};
-use maplit::btreeset;
 use nodety::{
     NodeSignature, Type,
     demo_type::{DemoType, SIUnit},
@@ -23,11 +22,9 @@ pub fn test_never_of_signatures() {
 
 #[test]
 pub fn test_mother_of_signatures() {
-    let mut mother_of_signatures = sig("Never -> Any");
-    mother_of_signatures.tags = None;
+    let mother_of_signatures = sig("Never -> Any ! Any");
 
-    let mut child = sig("<T>(T, String) -> (Integer, T)");
-    child.tags = Some(btreeset! {123});
+    let child = sig("<T>(T, String) -> (Integer, T) ! Nondeterministic");
 
     assert!(mother_of_signatures.clone().supertype_of(child).is_supertype());
 

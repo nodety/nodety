@@ -318,14 +318,34 @@ fn parse_port_types<T: ParsableType, R: ParamTypeRef>(
 }
 
 fn parse_node_signature<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, NodeSignature<T, R>> {
-    (opt(parse_type_parameter_declarations), space0, parse_sig_input_output, ws0(tag("->")), parse_sig_input_output)
-        .map(|(params, _, (inputs, default_input_types), _, (outputs, _discarded_default_outputs))| NodeSignature {
-            parameters: params.unwrap_or_default(),
-            inputs,
-            outputs,
-            default_input_types,
-            ..Default::default()
-        })
+    (
+        opt(parse_type_parameter_declarations),
+        space0,
+        parse_sig_input_output,
+        ws0(tag("->")),
+        parse_sig_input_output,
+        opt(preceded(ws0(char('!')), parse_effects)),
+        opt(preceded((multispace1, tag("handles"), multispace1), parse_effects)),
+    )
+        .map(
+            |(params, _, (inputs, default_input_types), _, (outputs, _discarded_default_outputs), effects, handles)| {
+                NodeSignature {
+                    parameters: params.unwrap_or_default(),
+                    inputs,
+                    outputs,
+                    default_input_types,
+                    effects: effects.unwrap_or(TypeExpr::Never),
+                    handles: handles.unwrap_or(TypeExpr::Never),
+                }
+            },
+        )
+        .parse(input)
+}
+
+/// A union of atomic expressions, so that a signature stays atomic: `() -> () ! A | B` has the effects `A | B`.
+fn parse_effects<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
+    let (input, first) = parse_atomic_type_expr(input)?;
+    fold_many0(preceded(ws0(char('|')), parse_atomic_type_expr), move || first.clone(), TypeExpr::union_with)
         .parse(input)
 }
 
@@ -341,6 +361,8 @@ impl ParsableType for DemoType {
             value(TypeExpr::Type(DemoType::Sortable), tag("Sortable")),
             value(TypeExpr::Type(DemoType::Unit), tag("Unit")),
             value(TypeExpr::Type(DemoType::AnySI), tag("AnySI")),
+            value(TypeExpr::Type(DemoType::Nondeterministic), tag("Nondeterministic")),
+            value(TypeExpr::Type(DemoType::Fallible), tag("Fallible")),
             parse_quoted_string.map(|s| TypeExpr::Type(DemoType::String(Some(s)))),
             map(parse_si_unit, |(unit, scale)| TypeExpr::Type(DemoType::SI(unit, scale))),
             parse_array,

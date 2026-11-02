@@ -17,14 +17,14 @@ Nodety was initially designed for visual node editors but it works just as well 
 - **Variadic ports (inputs & outputs)** — `(...Integer) -> (Array<Integer>)`
 - **Rank-N polymorphism** — `(<T>(T) -> (T)) -> ()`
 - **User-defined type operations** — `<A, B>(A, B) -> (A * B)` (Can be used to model calculations with SI units)
-- **Propagating tags** — enforce constraints like const-correctness across the graph
+- **Effects** — `(T) -> (U) ! Nondeterministic | E`: infer and check what nodes may do besides computing outputs, with effect variables and scopes that handle effects
 - **Detailed diagnostics** — validation errors that pinpoint the exact edge/port with subtyping traces
 
 ## Quick start
 
 ```toml
 [dependencies]
-nodety = "0.2"
+nodety = "0.3"
 ```
 
 ```rust

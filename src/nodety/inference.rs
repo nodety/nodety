@@ -4,9 +4,9 @@
 use crate::{
     node_sorting::{SortDirection, sort_nodes_by_parent_depth},
     nodety::Nodety,
-    scope::{GlobalParameterId, Scope, ScopePointer},
+    scope::{GlobalParameterId, LocalParamID, Scope, ScopePointer, type_parameter::TypeParameter},
     r#type::Type,
-    type_expr::{ParamRef, ScopedTypeExpr, TypeExpr, node_signature::candidate::Candidate},
+    type_expr::{ParamRef, ScopedTypeExpr, TypeExpr, conditional::Conditional, node_signature::candidate::Candidate},
 };
 use petgraph::graph::NodeIndex;
 use petgraph::visit::IntoNodeReferences;
@@ -14,18 +14,24 @@ use petgraph::{
     Direction,
     visit::{EdgeRef, Topo},
 };
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 #[derive(Debug)]
 pub enum FlowSourceLocation {
     Output(NodeIndex, usize),
     DefaultType(NodeIndex, usize),
+    /// The effects of a node that flow into the effects of its parent.
+    Effects(NodeIndex),
 }
 
 #[derive(Debug)]
-pub struct FlowTargetLocation {
-    pub node_idx: NodeIndex,
-    pub input_idx: usize,
+pub enum FlowTargetLocation {
+    Input {
+        node_idx: NodeIndex,
+        input_idx: usize,
+    },
+    /// The effects of a node that its children's effects flow into.
+    Effects(NodeIndex),
 }
 
 impl FlowSourceLocation {
@@ -33,14 +39,25 @@ impl FlowSourceLocation {
         match self {
             FlowSourceLocation::Output(n, _) => *n,
             FlowSourceLocation::DefaultType(n, _) => *n,
+            FlowSourceLocation::Effects(n) => *n,
+        }
+    }
+}
+
+impl FlowTargetLocation {
+    pub fn node_idx(&self) -> NodeIndex {
+        match self {
+            FlowTargetLocation::Input { node_idx, .. } => *node_idx,
+            FlowTargetLocation::Effects(n) => *n,
         }
     }
 }
 
 /// A flow from one type into another.
-/// Programs have two kinds of flows:
-/// - Input to output
-/// - and default type to input.
+/// Programs have three kinds of flows:
+/// - Output to input
+/// - default type to input
+/// - and the effects of a child to the effects of its parent.
 #[derive(Debug)]
 pub struct Flow<T: Type> {
     pub source: ScopedTypeExpr<T>,
@@ -431,7 +448,7 @@ impl<T: Type> Nodety<T> {
                         target_scope: ScopePointer::clone(target_scope),
                     },
                     source_location: FlowSourceLocation::Output(edge.source(), edge.weight().source_port),
-                    target_location: FlowTargetLocation {
+                    target_location: FlowTargetLocation::Input {
                         node_idx: edge.target(),
                         input_idx: edge.weight().target_port,
                     },
@@ -460,10 +477,59 @@ impl<T: Type> Nodety<T> {
                         target_scope: ScopePointer::clone(scope),
                     },
                     source_location: FlowSourceLocation::DefaultType(node_idx, input_idx),
-                    target_location: FlowTargetLocation { node_idx, input_idx },
+                    target_location: FlowTargetLocation::Input { node_idx, input_idx },
                 });
             }
         }
+
+        // The effects of children that their parent doesn't handle become effects of the parent.
+        for (node_idx, node) in self.program.node_references() {
+            let Some(parent_idx) = node.parent else { continue };
+            let parent = &self.program[parent_idx];
+            let effects = node.signature.effects.clone().into_scoped();
+            let parent_effects = parent.signature.effects.clone().into_scoped();
+            if !effects.contains_type_param() && !parent_effects.contains_type_param() {
+                continue;
+            }
+            let (Some(scope), Some(parent_scope)) = (scopes.get(&node_idx), scopes.get(&parent_idx)) else { continue };
+            let (source, source_scope) =
+                unhandled_effects(effects, scope, parent.signature.handles.clone().into_scoped(), parent_scope);
+            flows.push(FlowWithMetadata {
+                flow: Flow {
+                    source,
+                    target: parent_effects,
+                    source_scope,
+                    target_scope: ScopePointer::clone(parent_scope),
+                },
+                source_location: FlowSourceLocation::Effects(node_idx),
+                target_location: FlowTargetLocation::Effects(parent_idx),
+            });
+        }
         flows
     }
+}
+
+/// The arms of `effects` that are not subtypes of `handles`: `X extends handles ? Never : X` with `X = effects`, which
+/// distributes over the arms of `effects` once they are known.
+fn unhandled_effects<T: Type>(
+    effects: ScopedTypeExpr<T>,
+    scope: &ScopePointer<T>,
+    handles: ScopedTypeExpr<T>,
+    handles_scope: &ScopePointer<T>,
+) -> (ScopedTypeExpr<T>, ScopePointer<T>) {
+    if handles == TypeExpr::Never {
+        return (effects, ScopePointer::clone(scope));
+    }
+    let effects_param = LocalParamID(0);
+    let mut exclusion_scope = Scope::new_child(scope);
+    exclusion_scope.define(effects_param, TypeParameter::default());
+    exclusion_scope.infer(&effects_param, effects, ScopePointer::clone(scope)).expect("the parameter was just defined");
+    let exclusion = Conditional {
+        t_test: TypeExpr::param(effects_param),
+        t_test_bound: TypeExpr::scope_portal(handles, ScopePointer::clone(handles_scope)),
+        t_then: TypeExpr::Never,
+        t_else: TypeExpr::param(effects_param),
+        infer: BTreeSet::new(),
+    };
+    (exclusion.into(), ScopePointer::new(exclusion_scope))
 }

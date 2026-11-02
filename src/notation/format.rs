@@ -150,6 +150,8 @@ impl FormattableType for DemoType {
                 Ok(write!(f, ")")?)
             }
             Self::AnySI => Ok(write!(f, "AnySI")?),
+            Self::Nondeterministic => Ok(write!(f, "Nondeterministic")?),
+            Self::Fallible => Ok(write!(f, "Fallible")?),
         }
     }
 
@@ -166,8 +168,39 @@ impl<T: FormattableType, R: UnscopedRef> NodeSignature<T, R> {
         format_type_params(&self.parameters, f)?;
         self.inputs.format_type(f, true)?;
         write!(f, " -> ")?;
-        self.outputs.format_type(f, true)
+        self.outputs.format_type(f, true)?;
+        if self.effects != TypeExpr::Never {
+            write!(f, " ! ")?;
+            format_effects(&self.effects, f)?;
+        }
+        if self.handles != TypeExpr::Never {
+            write!(f, " handles ")?;
+            format_effects(&self.handles, f)?;
+        }
+        Ok(())
     }
+
+    /// Effects and handled effects extend to the right, so a signature that has them is only atomic in parentheses.
+    fn format_type_notation_atomic(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
+        let extends_right = self.effects != TypeExpr::Never || self.handles != TypeExpr::Never;
+        if extends_right {
+            write!(f, "(")?;
+        }
+        self.format_type_notation(f)?;
+        if extends_right {
+            write!(f, ")")?;
+        }
+        Ok(())
+    }
+}
+
+/// Effects are a union of atomic expressions, see [NodeSignature::format_type_notation].
+fn format_effects<T: FormattableType, R: UnscopedRef>(
+    effects: &TypeExpr<T, R>,
+    f: &mut std::fmt::Formatter<'_>,
+) -> fmt::Result {
+    let is_union = matches!(effects, TypeExpr::Union(_, _));
+    effects.format_type(f, !is_union)
 }
 
 impl<T: FormattableType, R: UnscopedRef> TypeExpr<T, R> {
@@ -261,6 +294,7 @@ impl<T: FormattableType, R: UnscopedRef> TypeExpr<T, R> {
                 Ok(())
             }
             Self::Never => Ok(write!(f, "Never")?),
+            Self::NodeSignature(sig) if atomic => sig.format_type_notation_atomic(f),
             Self::NodeSignature(sig) => sig.format_type_notation(f),
             Self::PortTypes(ports) => {
                 write!(f, "(")?;

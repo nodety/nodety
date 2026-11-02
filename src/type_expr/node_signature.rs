@@ -14,7 +14,7 @@ use crate::{
 };
 use petgraph::algo::is_cyclic_directed;
 use petgraph::graph::DiGraph;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 #[cfg(feature = "json-schema")]
 use schemars::JsonSchema;
@@ -60,30 +60,22 @@ pub struct NodeSignature<T: Type, R: TypeRef = ParamRef> {
     /// These get ignored for nested NodeSignatures.
     pub default_input_types: BTreeMap<usize, TypeExpr<T, R>>,
 
-    /// Tags this node *provides* to downstream consumers.
+    /// What running the node may do besides producing its outputs, e.g. being nondeterministic or failing.
     ///
-    /// - `Some(set)` — the node carries exactly the listed tags.
-    /// - `None` — the node carries *every* tag (universal set), making it a
-    ///   supertype of all other tag sets.
+    /// Effects are ordinary types: an effect set is a union, no effects is [TypeExpr::Never] (the default), and an
+    /// effect variable is an ordinary type parameter, as in
+    /// `<T, U, E>(Array<T>, (T) -> (U) ! E) -> (Array<U>) ! E`.
+    /// They are covariant like outputs: a signature with fewer effects is a subtype.
     ///
-    /// Tags propagate forward through the graph: a node's effective tag set
-    /// is the intersection of its own `tags` with every incoming edge's tags.
-    ///
-    /// Defaults to `Some(∅)` (no tags).
-    ///
-    /// `u32` is used instead of `usize` for wasm compatibility (JS has 32-bit
-    /// integers).
-    pub tags: Option<BTreeSet<u32>>,
+    /// The effects of a node's children flow into the node's effects, see [NodeSignature::handles].
+    pub effects: TypeExpr<T, R>,
 
-    /// Tags this node *requires* from every incoming edge.
+    /// Effects of the node's children that the node itself handles, so they don't escape it.
     ///
-    /// During validation, each incoming edge's source tags are checked against
-    /// this set. Any tag present here but missing from an incoming edge
-    /// produces a [`TagMissing`](crate::validation::ValidationErrorKind::TagMissing)
-    /// error.
-    ///
-    /// Defaults to `∅` (no requirements).
-    pub required_tags: BTreeSet<u32>,
+    /// The effects of every child must be a subtype of `effects | handles` of its parent. Only the effects that
+    /// are not handled get inferred into the parent's effects. Ignored for nested NodeSignatures. Defaults to
+    /// [TypeExpr::Never].
+    pub handles: TypeExpr<T, R>,
 }
 
 impl<T: Type, R: TypeRef> Default for NodeSignature<T, R> {
@@ -93,21 +85,21 @@ impl<T: Type, R: TypeRef> Default for NodeSignature<T, R> {
             inputs: TypeExpr::PortTypes(Box::new(PortTypes::new())),
             outputs: TypeExpr::PortTypes(Box::new(PortTypes::new())),
             default_input_types: BTreeMap::new(),
-            tags: Some(BTreeSet::new()),
-            required_tags: BTreeSet::new(),
+            effects: TypeExpr::Never,
+            handles: TypeExpr::Never,
         }
     }
 }
 
 impl<T: Type, R: TypeRef> NodeSignature<T, R> {
-    /// Sets the provided tags to `Some(tags)`. See [`NodeSignature::tags`].
-    pub fn with_tags(self, tags: impl IntoIterator<Item = u32>) -> Self {
-        Self { tags: Some(tags.into_iter().collect()), ..self }
+    /// Sets the effects. See [`NodeSignature::effects`].
+    pub fn with_effects(self, effects: TypeExpr<T, R>) -> Self {
+        Self { effects, ..self }
     }
 
-    /// Sets the required tags. See [`NodeSignature::required_tags`].
-    pub fn with_required_tags(self, required_tags: impl IntoIterator<Item = u32>) -> Self {
-        Self { required_tags: required_tags.into_iter().collect(), ..self }
+    /// Sets the handled effects. See [`NodeSignature::handles`].
+    pub fn with_handles(self, handles: TypeExpr<T, R>) -> Self {
+        Self { handles, ..self }
     }
 
     pub fn with_default_input_types(self, default_input_types: BTreeMap<usize, TypeExpr<T, R>>) -> Self {
@@ -164,6 +156,8 @@ impl<T: Type> NodeSignature<T, ScopedTypeRef<T>> {
         }
         self.inputs.validate(&scope)?;
         self.outputs.validate(&scope)?;
+        self.effects.validate(&scope)?;
+        self.handles.validate(&scope)?;
         for default_type in self.default_input_types.values() {
             default_type.validate(&scope)?;
         }
@@ -172,7 +166,7 @@ impl<T: Type> NodeSignature<T, ScopedTypeRef<T>> {
 }
 
 impl<T: Type, R: AsScopedRef<T>> NodeSignature<T, R> {
-    /// Normalizes type parameters in inputs, outputs, and parameter bounds/defaults.
+    /// Normalizes type parameters in inputs, outputs, effects, handled effects and parameter bounds/defaults.
     /// `default_input_types` are carried over as-is (widened, not normalized) — they get ignored for nested NodeSignatures.
     pub fn normalize(&self, scope: &ScopePointer<T>) -> NodeSignature<T, ScopedTypeRef<T>> {
         NodeSignature {
@@ -180,8 +174,8 @@ impl<T: Type, R: AsScopedRef<T>> NodeSignature<T, R> {
             inputs: self.inputs.normalize(scope),
             outputs: self.outputs.normalize(scope),
             default_input_types: self.default_input_types.iter().map(|(k, v)| (*k, v.clone().into_scoped())).collect(),
-            tags: self.tags.clone(),
-            required_tags: self.required_tags.clone(),
+            effects: self.effects.normalize(scope),
+            handles: self.handles.normalize(scope),
         }
     }
 }

@@ -140,14 +140,8 @@ pub enum NoSupertypeLayerReason {
     NodeSignatureInputs,
     /// NodeSignature: outputs (covariant) failed.
     NodeSignatureOutputs,
-    /// NodeSignature: the parent's provided tags are not a superset of the
-    /// child's provided tags. A parent must carry at least every tag the
-    /// child carries (tags are covariant).
-    NodeSignatureTags,
-    /// NodeSignature: the child's required tags are not a superset of the
-    /// parent's required tags. A child may require *more* tags but never
-    /// *fewer* than the parent (required tags are contravariant).
-    NodeSignatureRequiredTags,
+    /// NodeSignature: effects (covariant) failed. The child may have effects the parent doesn't allow.
+    NodeSignatureEffects,
     /// PortTypes: child has no varg but parent has.
     PortTypesVarg,
     /// PortTypes: arity mismatch (missing port).
@@ -523,30 +517,15 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                         })
                     })?;
 
-                // Tags: self can have more tags (provides more), but must have all of other's required tags
-                if let Some(parent_tags) = &parent_sig.tags {
-                    if let Some(child_tags) = &child_sig.tags {
-                        if !parent_tags.is_superset(child_tags) {
-                            return Err(Unrelated(D::new(
-                                parent,
-                                child,
-                                Some(NoSupertypeLayerReason::NodeSignatureTags),
-                            )));
-                        }
-                    } else {
-                        // Child tags are All and parent tags are not => no supertype
-                        return Err(Unrelated(D::new(parent, child, Some(NoSupertypeLayerReason::NodeSignatureTags))));
-                    }
-                } // else: parent tags are all the tags in the universe so supertype of all other tags.
-
-                // Required tags: self can require less (more permissive) But can't require more.
-                if !child_sig.required_tags.is_superset(&parent_sig.required_tags) {
-                    return Err(Unrelated(D::new(
-                        parent,
-                        child,
-                        Some(NoSupertypeLayerReason::NodeSignatureRequiredTags),
-                    )));
-                }
+                // covariant
+                parent_sig
+                    .effects
+                    .supertype_of_impl::<D, R2>(&child_sig.effects, &parent_scope, &child_scope)
+                    .map_err(|e| {
+                        e.map_unrelated(|d| {
+                            d.add_layer(parent, child, Some(NoSupertypeLayerReason::NodeSignatureEffects))
+                        })
+                    })?;
                 Ok(())
             }
 
