@@ -24,7 +24,7 @@
 //!
 //! **Features beyond typescript:**
 //! - User defined type operations `<A, B>(A, B) -> (A * B)` (e.g. for SI units. You can define any type operation you like)
-//! - Effects `<T, U, E>(Array<T>, (T) -> (U) effects E) -> (Array<U>) effects E` - Nodes declare what they may do besides computing their outputs (e.g. being nondeterministic or failing). Effects get inferred and checked like types.
+//! - Effects `<T, U, E>(Array<T>, (T) -> (U) effects <E>) -> (Array<U>) effects <E>` - Nodes declare what they may do besides computing their outputs (e.g. being nondeterministic or failing). Effects get inferred and checked like types.
 //!
 //! **Not yet supported:**
 //! - Mapped types `{ [K in keyof { a: Integer }]: K }`
@@ -213,13 +213,13 @@
 //! ### Effects
 //! A node signature can declare effects: what running the node may do besides producing its outputs, e.g. being
 //! nondeterministic or failing. Effects are ordinary types of your type system, so there is nothing new to learn:
-//! - An effect set is a union: `() -> (Integer) effects Nondeterministic | Fallible`. No effects is `Never`, the default.
-//! - An effect variable is an ordinary type parameter: `<T, U, E>(Array<T>, (T) -> (U) effects E) -> (Array<U>) effects E`
+//! - An effect set is a union: `() -> (Integer) effects <Nondeterministic> <Fallible>`. No effects is `Never`, the default.
+//! - An effect variable is an ordinary type parameter: `<T, U, E>(Array<T>, (T) -> (U) effects <E>) -> (Array<U>) effects <E>`
 //!   has the effects of the closure it gets.
 //! - Effects are covariant like outputs: a signature with fewer effects is a subtype of one with more. A closure
 //!   input `(T) -> (U)` doesn't accept a nondeterministic closure.
 //! - The effects of children flow into their parent: they get inferred into the parent's effects and must stay
-//!   within them, except for the effects the parent handles (`() -> () effects E handles Fallible`). Nodes without a parent
+//!   within them, except for the effects the parent handles (`() -> () effects <E> handles <Fallible>`). Nodes without a parent
 //!   are unbounded unless validated with [`Nodety::validate_with_effect_bound`].
 //!
 //! See [`NodeSignature::effects`](crate::type_expr::node_signature::NodeSignature::effects)

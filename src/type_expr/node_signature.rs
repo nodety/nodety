@@ -64,7 +64,7 @@ pub struct NodeSignature<T: Type, R: TypeRef = ParamRef> {
     ///
     /// Effects are ordinary types: an effect set is a union, no effects is [TypeExpr::Never] (the default), and an
     /// effect variable is an ordinary type parameter, as in
-    /// `<T, U, E>(Array<T>, (T) -> (U) effects E) -> (Array<U>) effects E`.
+    /// `<T, U, E>(Array<T>, (T) -> (U) effects <E>) -> (Array<U>) effects <E>`.
     /// They are covariant like outputs: a signature with fewer effects is a subtype.
     ///
     /// The effects of a node's children flow into the node's effects, see [NodeSignature::handles].

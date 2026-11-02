@@ -179,28 +179,25 @@ impl<T: FormattableType, R: UnscopedRef> NodeSignature<T, R> {
         }
         Ok(())
     }
-
-    /// Effects and handled effects extend to the right, so a signature that has them is only atomic in parentheses.
-    fn format_type_notation_atomic(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
-        let extends_right = self.effects != TypeExpr::Never || self.handles != TypeExpr::Never;
-        if extends_right {
-            write!(f, "(")?;
-        }
-        self.format_type_notation(f)?;
-        if extends_right {
-            write!(f, ")")?;
-        }
-        Ok(())
-    }
 }
 
-/// Effects are a union of atomic expressions, see [NodeSignature::format_type_notation].
+/// `<A> <B>` for `A | B`. Only the left spine of the union is split into brackets, so that parsing gives back the
+/// same structure.
 fn format_effects<T: FormattableType, R: UnscopedRef>(
     effects: &TypeExpr<T, R>,
     f: &mut std::fmt::Formatter<'_>,
 ) -> fmt::Result {
-    let is_union = matches!(effects, TypeExpr::Union(_, _));
-    effects.format_type(f, !is_union)
+    let last = match effects {
+        TypeExpr::Union(left, right) => {
+            format_effects(left, f)?;
+            write!(f, " ")?;
+            right
+        }
+        effect => effect,
+    };
+    write!(f, "<")?;
+    last.format_type(f, false)?;
+    write!(f, ">")
 }
 
 impl<T: FormattableType, R: UnscopedRef> TypeExpr<T, R> {
@@ -294,7 +291,6 @@ impl<T: FormattableType, R: UnscopedRef> TypeExpr<T, R> {
                 Ok(())
             }
             Self::Never => Ok(write!(f, "Never")?),
-            Self::NodeSignature(sig) if atomic => sig.format_type_notation_atomic(f),
             Self::NodeSignature(sig) => sig.format_type_notation(f),
             Self::PortTypes(ports) => {
                 write!(f, "(")?;

@@ -342,15 +342,17 @@ fn parse_node_signature<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResul
         .parse(input)
 }
 
-/// A union of atomic expressions, so that a signature stays atomic: `() -> () effects A | B` has the effects `A | B`.
+/// One or more effects in angle brackets, `<A> <B>`, which is the union `A | B`.
 fn parse_effects<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
-    let (input, first) = parse_atomic_type_expr(input)?;
-    fold_many0(preceded(ws0(char('|')), parse_atomic_type_expr), move || first.clone(), TypeExpr::union_with)
-        .parse(input)
+    let effect = || preceded(multispace0, delimited(char('<'), ws0(parse_type_expr), char('>')));
+    let (input, first) = effect().parse(input)?;
+    fold_many0(effect(), move || first.clone(), TypeExpr::union_with).parse(input)
 }
 
+/// Whitespace around keywords is optional because they are followed by `<`. Outputs written as a bare type parameter
+/// still need a space, `() -> T effects <A>`, as `Teffects` would be one identifier.
 fn keyword<'a>(keyword: &'static str) -> impl Parser<&'a str, Output = &'a str, Error = nom::error::Error<&'a str>> {
-    delimited(multispace1, tag(keyword), multispace1)
+    preceded(multispace0, tag(keyword))
 }
 
 impl ParsableType for DemoType {

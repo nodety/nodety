@@ -20,15 +20,18 @@ fn inferred(scopes: &Scopes<DemoType>, node_idx: NodeIndex, param: &str) -> Scop
 #[test]
 fn notation_round_trips() {
     for notation in [
-        "() -> () effects Nondeterministic",
-        "() -> () effects Nondeterministic | Fallible",
-        "<E, T, U>(Array<T>, (T) -> (U) effects E) -> (Array<U>) effects E",
-        "<E>() -> () effects E handles Fallible",
-        "() -> () handles Fallible | Nondeterministic",
-        "(((T) -> (U) effects E) | Integer) -> ()",
-        "(((T) -> (U) handles E) | Integer) -> ()",
-        "() -> () effects ((A) -> (B) effects C)",
-        "() -> () effects (A & B)",
+        "() -> () effects <Nondeterministic>",
+        "() -> () effects <Nondeterministic> <Fallible>",
+        "<E, T, U>(Array<T>, (T) -> (U) effects <E>) -> (Array<U>) effects <E>",
+        "<E>() -> () effects <E> handles <Fallible>",
+        "() -> () handles <Fallible> <Nondeterministic>",
+        "((T) -> (U) effects <E> | Integer) -> ()",
+        "((T) -> (U) handles <E> | Integer) -> ()",
+        "() -> () effects <(A) -> (B) effects <C>>",
+        "() -> () effects <A & B>",
+        "() -> () effects <A> <B | C>",
+        "() -> () effects <Array<T>>",
+        "() -> () effects <<T>(T) -> (T)>",
     ] {
         assert_eq!(notation, sig_u(notation).to_string());
     }
@@ -42,32 +45,61 @@ fn effects_default_to_never() {
 }
 
 #[test]
-fn effects_bind_to_the_signature() {
-    assert_eq!(sig_u("() -> () effects A | B").effects, expr_u("A | B"));
+fn effects_are_a_union() {
+    assert_eq!(sig_u("() -> () effects <A> <B>").effects, expr_u("A | B"));
+    assert_eq!(sig_u("() -> () effects <A | B>").effects, expr_u("A | B"));
+}
+
+#[test]
+fn whitespace_around_effects_is_optional() {
+    let expected = sig_u("() -> () effects <A> <B> handles <C>");
+    for notation in [
+        "() -> ()effects<A><B>handles<C>",
+        "() -> () effects<A> <B>handles <C>",
+        "() -> ()  effects  < A >  < B >  handles  < C >",
+        "() -> ()\neffects <A>\n  <B>\nhandles <C>",
+    ] {
+        assert_eq!(sig_u(notation), expected, "{notation}");
+    }
+    assert_eq!(sig_u("() -> T effects<A>").effects, expr_u("A"));
+}
+
+/// The brackets end the effects, so what follows belongs to the surrounding expression.
+#[test]
+fn effects_end_with_their_brackets() {
     assert_eq!(
-        expr_u("((T) -> (U) effects E) | Integer"),
-        TypeExpr::Union(Box::new(sig_u("(T) -> (U) effects E").into()), Box::new(expr_u("Integer")))
+        expr_u("(T) -> (U) effects <E> | Integer"),
+        TypeExpr::Union(Box::new(sig_u("(T) -> (U) effects <E>").into()), Box::new(expr_u("Integer")))
     );
+    let TypeExpr::PortTypes(inputs) = sig_u("((T) -> (U) effects <A>, B) -> ()").inputs else { panic!("ports") };
+    assert_eq!(inputs.ports, [sig_u("(T) -> (U) effects <A>").into(), expr_u("B")]);
+}
+
+#[test]
+fn effects_need_brackets() {
+    for notation in ["() -> () effects A", "() -> () effects", "() -> () handles C", "() -> () effects <>"] {
+        assert!(notation.parse::<nodety::NodeSignature<DemoType>>().is_err(), "{notation}");
+    }
 }
 
 #[test]
 fn fewer_effects_are_a_subtype() {
     let pure = sig("(Integer) -> (Integer)");
-    let nondeterministic = sig("(Integer) -> (Integer) effects Nondeterministic");
-    let both = sig("(Integer) -> (Integer) effects Nondeterministic | Fallible");
+    let nondeterministic = sig("(Integer) -> (Integer) effects <Nondeterministic>");
+    let both = sig("(Integer) -> (Integer) effects <Nondeterministic> <Fallible>");
 
     assert!(nondeterministic.clone().supertype_of(pure.clone()).is_supertype());
     assert!(!pure.clone().supertype_of(nondeterministic.clone()).is_supertype());
     assert!(both.clone().supertype_of(nondeterministic.clone()).is_supertype());
     assert!(!nondeterministic.supertype_of(both.clone()).is_supertype());
-    assert!(sig("(Integer) -> (Integer) effects Any").supertype_of(both).is_supertype());
+    assert!(sig("(Integer) -> (Integer) effects <Any>").supertype_of(both).is_supertype());
 }
 
 #[test]
 fn effects_of_a_closure_input_get_inferred() {
     let mut nodety = Nodety::<DemoType>::new();
-    let mapper = nodety.add_node(sig_u("() -> ((Integer) -> (String) effects Nondeterministic)")).unwrap();
-    let map = nodety.add_node(sig_u("<T, U, E>((T) -> (U) effects E) -> () effects E")).unwrap();
+    let mapper = nodety.add_node(sig_u("() -> ((Integer) -> (String) effects <Nondeterministic>)")).unwrap();
+    let map = nodety.add_node(sig_u("<T, U, E>((T) -> (U) effects <E>) -> () effects <E>")).unwrap();
     nodety.add_edge(mapper, map, Edge { source_port: 0, target_port: 0 }).unwrap();
 
     let scopes = nodety.infer(&InferenceConfig::default());
@@ -79,7 +111,7 @@ fn effects_of_a_closure_input_get_inferred() {
 #[test]
 fn closure_with_effects_is_rejected_by_a_pure_input() {
     let mut nodety = Nodety::<DemoType>::new();
-    let mapper = nodety.add_node(sig_u("() -> ((Integer) -> (String) effects Nondeterministic)")).unwrap();
+    let mapper = nodety.add_node(sig_u("() -> ((Integer) -> (String) effects <Nondeterministic>)")).unwrap();
     let map = nodety.add_node(sig_u("<T, U>((T) -> (U)) -> ()")).unwrap();
     nodety.add_edge(mapper, map, Edge { source_port: 0, target_port: 0 }).unwrap();
 
@@ -91,9 +123,9 @@ fn closure_with_effects_is_rejected_by_a_pure_input() {
 #[test]
 fn effects_of_children_flow_into_the_parent() {
     let mut nodety = Nodety::<DemoType>::new();
-    let parent = nodety.add_node(sig_u("<E>() -> () effects E")).unwrap();
-    nodety.add_node(Node::new_child(sig_u("() -> () effects Nondeterministic"), parent)).unwrap();
-    nodety.add_node(Node::new_child(sig_u("() -> () effects Fallible"), parent)).unwrap();
+    let parent = nodety.add_node(sig_u("<E>() -> () effects <E>")).unwrap();
+    nodety.add_node(Node::new_child(sig_u("() -> () effects <Nondeterministic>"), parent)).unwrap();
+    nodety.add_node(Node::new_child(sig_u("() -> () effects <Fallible>"), parent)).unwrap();
     nodety.add_node(Node::new_child(sig_u("() -> ()"), parent)).unwrap();
 
     let scopes = nodety.infer(&InferenceConfig::default());
@@ -108,7 +140,7 @@ fn effects_of_children_flow_into_the_parent() {
 #[test]
 fn children_without_effects_infer_none() {
     let mut nodety = Nodety::<DemoType>::new();
-    let parent = nodety.add_node(sig_u("<E>() -> () effects E")).unwrap();
+    let parent = nodety.add_node(sig_u("<E>() -> () effects <E>")).unwrap();
     nodety.add_node(Node::new_child(sig_u("() -> ()"), parent)).unwrap();
 
     let scopes = nodety.infer(&InferenceConfig::default());
@@ -119,9 +151,9 @@ fn children_without_effects_infer_none() {
 #[test]
 fn handled_effects_dont_flow_into_the_parent() {
     let mut nodety = Nodety::<DemoType>::new();
-    let parent = nodety.add_node(sig_u("<E>() -> () effects E handles Fallible")).unwrap();
-    nodety.add_node(Node::new_child(sig_u("() -> () effects Nondeterministic | Fallible"), parent)).unwrap();
-    nodety.add_node(Node::new_child(sig_u("() -> () effects Fallible"), parent)).unwrap();
+    let parent = nodety.add_node(sig_u("<E>() -> () effects <E> handles <Fallible>")).unwrap();
+    nodety.add_node(Node::new_child(sig_u("() -> () effects <Nondeterministic> <Fallible>"), parent)).unwrap();
+    nodety.add_node(Node::new_child(sig_u("() -> () effects <Fallible>"), parent)).unwrap();
 
     let scopes = nodety.infer(&InferenceConfig::default());
 
@@ -136,12 +168,12 @@ fn handled_effects_dont_flow_into_the_parent() {
 #[test]
 fn inferred_effects_of_children_flow_into_the_parent() {
     let mut nodety = Nodety::<DemoType>::new();
-    let parent = nodety.add_node(sig_u("<E>() -> () effects E handles Fallible")).unwrap();
+    let parent = nodety.add_node(sig_u("<E>() -> () effects <E> handles <Fallible>")).unwrap();
     let mapper = nodety
-        .add_node(Node::new_child(sig_u("() -> ((Integer) -> (String) effects Nondeterministic | Fallible)"), parent))
+        .add_node(Node::new_child(sig_u("() -> ((Integer) -> (String) effects <Nondeterministic> <Fallible>)"), parent))
         .unwrap();
     let map =
-        nodety.add_node(Node::new_child(sig_u("<T, U, F>((T) -> (U) effects F) -> () effects F"), parent)).unwrap();
+        nodety.add_node(Node::new_child(sig_u("<T, U, F>((T) -> (U) effects <F>) -> () effects <F>"), parent)).unwrap();
     nodety.add_edge(mapper, map, Edge { source_port: 0, target_port: 0 }).unwrap();
 
     let scopes = nodety.infer(&InferenceConfig::default());
@@ -156,9 +188,9 @@ fn inferred_effects_of_children_flow_into_the_parent() {
 #[test]
 fn effects_must_be_allowed_by_the_parent() {
     let mut nodety = Nodety::<DemoType>::new();
-    let parent = nodety.add_node(sig_u("() -> () effects Nondeterministic")).unwrap();
-    nodety.add_node(Node::new_child(sig_u("() -> () effects Nondeterministic"), parent)).unwrap();
-    let failing = nodety.add_node(Node::new_child(sig_u("() -> () effects Fallible"), parent)).unwrap();
+    let parent = nodety.add_node(sig_u("() -> () effects <Nondeterministic>")).unwrap();
+    nodety.add_node(Node::new_child(sig_u("() -> () effects <Nondeterministic>"), parent)).unwrap();
+    let failing = nodety.add_node(Node::new_child(sig_u("() -> () effects <Fallible>"), parent)).unwrap();
 
     let errors = nodety.validate(&nodety.infer(&InferenceConfig::default()));
 
@@ -172,8 +204,8 @@ fn effects_must_be_allowed_by_the_parent() {
 #[test]
 fn handled_effects_are_allowed() {
     let mut nodety = Nodety::<DemoType>::new();
-    let parent = nodety.add_node(sig_u("() -> () handles Fallible")).unwrap();
-    nodety.add_node(Node::new_child(sig_u("() -> () effects Fallible"), parent)).unwrap();
+    let parent = nodety.add_node(sig_u("() -> () handles <Fallible>")).unwrap();
+    nodety.add_node(Node::new_child(sig_u("() -> () effects <Fallible>"), parent)).unwrap();
 
     assert_eq!(nodety.validate(&nodety.infer(&InferenceConfig::default())), []);
 }
@@ -181,7 +213,7 @@ fn handled_effects_are_allowed() {
 #[test]
 fn nodes_without_parent_are_bounded_on_request() {
     let mut nodety = Nodety::<DemoType>::new();
-    let node = nodety.add_node(sig_u("() -> () effects Fallible")).unwrap();
+    let node = nodety.add_node(sig_u("() -> () effects <Fallible>")).unwrap();
     let scopes = nodety.infer(&InferenceConfig::default());
 
     assert_eq!(nodety.validate(&scopes), []);
@@ -197,8 +229,8 @@ fn nodes_without_parent_are_bounded_on_request() {
 #[test]
 fn effects_of_a_child_get_inferred_from_the_parent() {
     let mut nodety = Nodety::<DemoType>::new();
-    let parent = nodety.add_node(sig_u("() -> () effects Nondeterministic")).unwrap();
-    let child = nodety.add_node(Node::new_child(sig_u("<E>() -> () effects E"), parent)).unwrap();
+    let parent = nodety.add_node(sig_u("() -> () effects <Nondeterministic>")).unwrap();
+    let child = nodety.add_node(Node::new_child(sig_u("<E>() -> () effects <E>"), parent)).unwrap();
 
     let scopes = nodety.infer(&InferenceConfig::default());
 
@@ -209,7 +241,7 @@ fn effects_of_a_child_get_inferred_from_the_parent() {
 #[test]
 fn uninferred_effects_are_reported() {
     let mut nodety = Nodety::<DemoType>::new();
-    let node = nodety.add_node(sig_u("<E>() -> () effects E")).unwrap();
+    let node = nodety.add_node(sig_u("<E>() -> () effects <E>")).unwrap();
     let scopes = nodety.infer(&InferenceConfig::default());
 
     assert_eq!(nodety.validate(&scopes), []);
