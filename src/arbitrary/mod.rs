@@ -97,6 +97,7 @@ where
                             }
                         ),
                         element.clone().prop_map(|expr| TypeExpr::KeyOf(Box::new(expr))),
+                        element.clone().prop_map(|expr| TypeExpr::Readonly(Box::new(expr))),
                         (element.clone(), element.clone()).prop_map(|(expr, index)| {
                             TypeExpr::Index { expr: Box::new(expr), index: Box::new(index) }
                         }),
@@ -242,6 +243,8 @@ impl Arbitrary for DemoType {
             Just(DemoType::Unit),
             Just(DemoType::Record),
             Just(DemoType::Array),
+            Just(DemoType::MutableRecord),
+            Just(DemoType::MutableArray),
             Just(DemoType::AnySI),
             any::<(SIUnit, f64)>().prop_map(|(unit, scale)| DemoType::SI(unit, scale)),
         ]

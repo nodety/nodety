@@ -160,6 +160,8 @@ pub enum NoSupertypeLayerReason {
     ConstructorArity,
     /// Constructor: inner type or parameter comparison failed.
     ConstructorParam,
+    /// Mutable constructor: the child's parameter is wider than the parent's, see [Type::readonly_counterpart].
+    MutableConstructorParam,
     /// Bounded `L..U`: the child is wider than `U`.
     BoundedUpper,
     /// Bounded `L..U`: the child is narrower than `L`.
@@ -384,6 +386,20 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 }
             },
 
+            (TypeExpr::Readonly(parent_expr), child) => {
+                if let Some((readonly, readonly_scope)) = parent_expr.readonly(&parent_scope) {
+                    return readonly.supertype_of_impl::<D, R2>(child, &readonly_scope, &child_scope);
+                }
+                // `A :> B` implies `readonly A :> readonly B`, but not the other way around.
+                let TypeExpr::Readonly(child_expr) = child else { return Err(Unknown) };
+                parent_expr.supertype_of_impl::<D, R2>(child_expr, &parent_scope, &child_scope).map_err(|_| Unknown)
+            }
+
+            (parent, TypeExpr::Readonly(child_expr)) => {
+                let (readonly, readonly_scope) = child_expr.readonly(&child_scope).ok_or(Unknown)?;
+                parent.supertype_of_impl::<D, ScopedTypeRef<T>>(&readonly, &parent_scope, &readonly_scope)
+            }
+
             // As long as the operands aren't fully resolved, the operation can't be evaluated.
             (TypeExpr::Operation { a, b, operator }, child) => {
                 let a_normalized = a.normalize_concrete(&parent_scope).ok_or(Unknown)?;
@@ -590,12 +606,9 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
             }
 
             // Last so that child is not TypeParameter or Union variant.
-            (parent @ TypeExpr::Type(inst_parent), child @ TypeExpr::Type(inst_child)) => {
-                if inst_parent.supertype_of(inst_child) { Ok(()) } else { Err(Unrelated(D::new(parent, child, None))) }
-            }
-
-            (parent @ TypeExpr::Type(inst_parent), child @ TypeExpr::Constructor { inner: inst_child, .. }) => {
-                if inst_parent.supertype_of(inst_child) {
+            (parent @ TypeExpr::Type(inst_parent), child @ TypeExpr::Type(inst_child))
+            | (parent @ TypeExpr::Type(inst_parent), child @ TypeExpr::Constructor { inner: inst_child, .. }) => {
+                if leaf_supertype_of(inst_parent, inst_child) {
                     Ok(())
                 } else {
                     Err(Unrelated(D::new(parent, child, None)))
@@ -605,22 +618,30 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
             // Normalization turns a constructor without args into its inner type, so the child lacks every parameter:
             // like a constructor child, it is a subtype if the parent's parameters are all optional.
             (parent @ TypeExpr::Constructor { inner: inst_parent, parameters }, child @ TypeExpr::Type(inst_child)) => {
-                if !parameters.values().all(|parameter| parameter.is_optional_in_constructor(&parent_scope)) {
+                if !parameters
+                    .values()
+                    .all(|parameter| parameter.is_optional_in_constructor_of(inst_parent, &parent_scope))
+                {
                     return Err(Unrelated(D::new(parent, child, Some(NoSupertypeLayerReason::ConstructorArity))));
                 }
-                if inst_parent.supertype_of(inst_child) { Ok(()) } else { Err(Unrelated(D::new(parent, child, None))) }
+                if leaf_supertype_of(inst_parent, inst_child) {
+                    Ok(())
+                } else {
+                    Err(Unrelated(D::new(parent, child, None)))
+                }
             }
 
             (
                 parent @ TypeExpr::Constructor { inner: parent_inner, parameters: parent_parameters },
                 child @ TypeExpr::Constructor { inner: child_inner, parameters: child_parameters },
             ) => {
-                if !parent_inner.supertype_of(child_inner) {
+                if !leaf_supertype_of(parent_inner, child_inner) {
                     return Err(Unrelated(D::new(parent, child, Some(NoSupertypeLayerReason::ConstructorParam))));
                 }
+                let mutable = parent_inner.readonly_counterpart().is_some();
                 for (ident, parent_param) in parent_parameters {
                     let Some(child_param) = child_parameters.get(ident) else {
-                        if parent_param.is_optional_in_constructor(&parent_scope) {
+                        if parent_param.is_optional_in_constructor_of(parent_inner, &parent_scope) {
                             continue;
                         }
                         return Err(Unrelated(D::new(parent, child, Some(NoSupertypeLayerReason::ConstructorArity))));
@@ -628,6 +649,16 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                     parent_param.supertype_of_impl::<D, R2>(child_param, &parent_scope, &child_scope).map_err(|e| {
                         e.map_unrelated(|d| d.add_layer(parent, child, Some(NoSupertypeLayerReason::ConstructorParam)))
                     })?;
+                    // A bounded parameter already says which children it accepts.
+                    if mutable && !parent_param.is_bounded() {
+                        child_param.supertype_of_impl::<D, R>(parent_param, &child_scope, &parent_scope).map_err(
+                            |e| {
+                                e.map_unrelated(|d| {
+                                    d.add_layer(parent, child, Some(NoSupertypeLayerReason::MutableConstructorParam))
+                                })
+                            },
+                        )?;
+                    }
                 }
                 Ok(())
             }
@@ -642,7 +673,22 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
     }
 }
 
+/// [Type::supertype_of] with the rules for mutable types of [Type::readonly_counterpart].
+pub(crate) fn leaf_supertype_of<T: Type>(parent: &T, child: &T) -> bool {
+    match (parent.readonly_counterpart(), child.readonly_counterpart()) {
+        (Some(_), None) => false,
+        (None, Some(child_readonly)) => parent.supertype_of(child) || parent.supertype_of(&child_readonly),
+        _ => parent.supertype_of(child),
+    }
+}
+
 impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
+    /// [Self::is_optional_in_constructor] for a parameter of a constructor with `inner`: parameters of mutable
+    /// constructors are never optional.
+    fn is_optional_in_constructor_of(&self, inner: &T, scope: &ScopePointer<T>) -> bool {
+        inner.readonly_counterpart().is_none() && self.is_optional_in_constructor(scope)
+    }
+
     /// Determines wether or not the type is optional in a constructor.
     ///
     /// That is if it:

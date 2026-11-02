@@ -131,6 +131,7 @@ impl<T: Type, R: TypeRef> TypeExpr<T, R> {
                 TypeExpr::Union(Box::new(a.try_map_refs_mut(mapper)?), Box::new(b.try_map_refs_mut(mapper)?))
             }
             Self::KeyOf(expr) => TypeExpr::KeyOf(Box::new(expr.try_map_refs_mut(mapper)?)),
+            Self::Readonly(expr) => TypeExpr::Readonly(Box::new(expr.try_map_refs_mut(mapper)?)),
             Self::Index { expr, index } => TypeExpr::Index {
                 expr: Box::new(expr.try_map_refs_mut(mapper)?),
                 index: Box::new(index.try_map_refs_mut(mapper)?),

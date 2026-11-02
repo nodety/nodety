@@ -83,6 +83,9 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
 
             Self::KeyOf(expr) => expr.keyof(scope),
 
+            // Read-only types have the same keys.
+            Self::Readonly(expr) => expr.keyof(scope),
+
             Self::Bounded { upper, .. } => upper.keyof(scope),
 
             Self::Index { expr, index } => {

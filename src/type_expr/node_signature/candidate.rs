@@ -1,7 +1,7 @@
 use crate::{
     scope::{ScopePointer, type_parameter::TypeParameter},
     r#type::Type,
-    type_expr::{ScopedTypeExpr, ScopedTypeRef, TypeExpr},
+    type_expr::{ScopedTypeExpr, ScopedTypeRef, TypeExpr, subtyping::leaf_supertype_of},
 };
 
 /// A candidate for a type parameter.
@@ -129,9 +129,9 @@ impl<T: Type> Candidate<T> {
         types
             .try_fold(first, |common, t| {
                 let t = t?;
-                if common.supertype_of(&t) {
+                if leaf_supertype_of(&common, &t) {
                     Some(common)
-                } else if t.supertype_of(&common) {
+                } else if leaf_supertype_of(&t, &common) {
                     Some(t)
                 } else {
                     common.common_supertype(&t)

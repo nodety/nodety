@@ -93,6 +93,7 @@ export type OperatorOf<T> = Extract<TypeOperators[keyof TypeOperators], [T, unkn
 ///
 /// A Constructor A is considered a supertype of another constructor B if A's inner type is a supertype of B's inner type.
 /// And A has the same or more parameters than B. And A's parameters are each supertypes of B's parameters.
+/// If A is [mutable](Type::readonly_counterpart), its parameters are invariant instead.
 ///
 /// ## Intersections
 ///
@@ -218,6 +219,25 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
     /// # Returns
     /// `None` if the two types have no value in common; the intersection then is [TypeExpr::Never].
     fn common_subtype(&self, _other: &Self) -> Option<Self> {
+        None
+    }
+
+    /// The read-only counterpart of a mutable type, `None` if `self` is not mutable.
+    ///
+    /// A mutable type (e.g. a mutable array) can be written to through any reference, so values can only be
+    /// stored if their type is exactly the one of the container. Nodety therefore treats a mutable type
+    /// differently from its read-only counterpart:
+    /// - The parameters of a mutable [Constructor](TypeExpr::Constructor) are invariant: a parent parameter `P`
+    ///   accepts only children that are both a sub- and a supertype of `P`. Bound it explicitly (`L..U`) to accept
+    ///   anything that can store `L` and is read as `U`.
+    /// - A mutable constructor doesn't lack parameters by subtyping, even if they are
+    ///   [optional](Type::optional_in_constructor): writing them through such a view would break other references.
+    /// - A mutable type is a subtype of everything its read-only counterpart is a subtype of, and only mutable
+    ///   types are subtypes of a mutable type. [Type::supertype_of] doesn't have to (but may) repeat that.
+    /// - [TypeExpr::Readonly] replaces it by its counterpart.
+    ///
+    /// The counterpart must not be mutable itself.
+    fn readonly_counterpart(&self) -> Option<Self> {
         None
     }
 

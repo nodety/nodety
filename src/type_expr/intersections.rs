@@ -1,7 +1,10 @@
 use crate::{
     scope::ScopePointer,
     r#type::Type,
-    type_expr::{AsScopedRef, ConstructorParams, ScopedRefView, ScopedTypeExpr, TypeExpr},
+    type_expr::{
+        AsScopedRef, ConstructorParams, ScopedRefView, ScopedTypeExpr, TypeExpr,
+        subtyping::{SupertypeResult, leaf_supertype_of},
+    },
 };
 
 impl<T: Type, Ra: AsScopedRef<T>> TypeExpr<T, Ra> {
@@ -119,9 +122,9 @@ impl<T: Type, Ra: AsScopedRef<T>> TypeExpr<T, Ra> {
             }
 
             (TypeExpr::Type(type_a), TypeExpr::Type(type_b)) => {
-                let intersection = if type_a.supertype_of(type_b) {
+                let intersection = if leaf_supertype_of(type_a, type_b) {
                     TypeExpr::Type(type_b.clone())
-                } else if type_b.supertype_of(type_a) {
+                } else if leaf_supertype_of(type_b, type_a) {
                     TypeExpr::Type(type_a.clone())
                 } else {
                     type_a.common_subtype(type_b).map_or(TypeExpr::Never, TypeExpr::Type)
@@ -138,6 +141,7 @@ impl<T: Type, Ra: AsScopedRef<T>> TypeExpr<T, Ra> {
                 TypeExpr::Constructor { inner: inner_a, parameters: parameters_a },
                 TypeExpr::Constructor { inner: inner_b, parameters: parameters_b },
             ) if inner_a == inner_b => {
+                let mutable = inner_a.readonly_counterpart().is_some();
                 let mut intersected_params = ConstructorParams::new();
                 for ident in parameters_a.keys().chain(parameters_b.keys()) {
                     if intersected_params.contains_key(ident) {
@@ -145,6 +149,19 @@ impl<T: Type, Ra: AsScopedRef<T>> TypeExpr<T, Ra> {
                     }
                     let (intersected_param, intersected_scope) =
                         match (parameters_a.get(ident), parameters_b.get(ident)) {
+                            // Parameters of mutable constructors are invariant: they either are equal or have
+                            // nothing in common.
+                            (Some(pa), Some(pb)) if mutable && !pa.is_bounded() && !pb.is_bounded() => {
+                                match (pa.supertype_of(pb, scope_a, scope_b), pb.supertype_of(pa, scope_b, scope_a)) {
+                                    (SupertypeResult::Supertype, SupertypeResult::Supertype) => {
+                                        (pa.clone().into_scoped(), ScopePointer::clone(scope_a))
+                                    }
+                                    (SupertypeResult::Unrelated(_), _) | (_, SupertypeResult::Unrelated(_)) => {
+                                        return Some((TypeExpr::Never, ScopePointer::clone(scope_a)));
+                                    }
+                                    _ => return None,
+                                }
+                            }
                             (Some(pa), Some(pb)) => TypeExpr::intersection(pa, pb, scope_a, scope_b)?,
                             (Some(pa), None) => (pa.clone().into_scoped(), ScopePointer::clone(scope_a)),
                             (None, Some(pb)) => (pb.clone().into_scoped(), ScopePointer::clone(scope_b)),
@@ -170,6 +187,15 @@ impl<T: Type, Ra: AsScopedRef<T>> TypeExpr<T, Ra> {
             (a, TypeExpr::Index { expr, index }) => {
                 let (index_type, index_scope) = expr.index(index, scope_b, scope_b)?;
                 TypeExpr::intersection(a, &index_type, scope_a, &index_scope)
+            }
+
+            (TypeExpr::Readonly(expr), b) => {
+                let (readonly, readonly_scope) = expr.readonly(scope_a)?;
+                TypeExpr::intersection(&readonly, b, &readonly_scope, scope_b)
+            }
+            (a, TypeExpr::Readonly(expr)) => {
+                let (readonly, readonly_scope) = expr.readonly(scope_b)?;
+                TypeExpr::intersection(a, &readonly, scope_a, &readonly_scope)
             }
 
             (TypeExpr::KeyOf(expr), b) => {

@@ -39,6 +39,7 @@ pub mod intersections;
 pub mod keyof;
 pub mod node_signature;
 pub mod normalization;
+pub mod readonly;
 pub mod subtyping;
 pub mod to_type_expr;
 pub mod traversal;
@@ -107,6 +108,13 @@ pub enum TypeExpr<T: Type, R: TypeRef = ParamRef> {
 
     /// Describes the key type of the expression.
     KeyOf(Box<TypeExpr<T, R>>),
+
+    /// `readonly T`: `T` with every mutable type replaced by its [read-only counterpart](Type::readonly_counterpart),
+    /// deeply, like typescript's `Readonly<T>` applied recursively. Function-like types are left as they are.
+    ///
+    /// A mutable value can be handed out through it without being written to, e.g. as a parameter that the
+    /// receiver can only read. Evaluated as soon as `T` is known, see [TypeExpr::readonly].
+    Readonly(Box<TypeExpr<T, R>>),
 
     /// Determines the type that `expr` returns when indexed with the type `index`.
     Index {
@@ -318,6 +326,7 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 let (key, key_scope) = expr.keyof(scope)?;
                 key.is_never(&key_scope)
             }
+            Self::Readonly(expr) => expr.is_never(scope),
             Self::Conditional(conditional) => conditional.distribute(scope)?.is_never(scope),
             Self::Bounded { upper, .. } => upper.is_never(scope),
             Self::Ref(r) => match r.view() {
@@ -373,6 +382,7 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 let (key, key_scope) = expr.keyof(scope)?;
                 key.is_any(&key_scope)
             }
+            Self::Readonly(expr) => expr.is_any(scope),
 
             Self::Conditional(conditional) => conditional.distribute(scope)?.is_any(scope),
             Self::Bounded { upper, .. } => upper.is_any(scope),

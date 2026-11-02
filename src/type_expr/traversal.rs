@@ -1,8 +1,17 @@
 use crate::{
     Type, TypeExpr,
     scope::ScopePointer,
-    type_expr::{ScopedTypeRef, TypeRef},
+    type_expr::{ScopedTypeRef, TypeRef, subtyping::leaf_supertype_of},
 };
+
+/// How two types visited by [TypeExpr::traverse_parallel] have to relate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Variance {
+    /// One may be a subtype of the other, depending on the direction of the flow. Also used where it isn't tracked.
+    Covariant,
+    /// Both have to be the same, e.g. parameters of [mutable](Type::readonly_counterpart) constructors.
+    Invariant,
+}
 
 impl<T: Type, R: TypeRef> TypeExpr<T, R> {
     /// Traverses this expression for all "top level" unions.
@@ -96,7 +105,7 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                 index.traverse_mut(&scope, walker, false);
             }
 
-            Self::KeyOf(expr) => expr.traverse_mut(&scope, walker, false),
+            Self::KeyOf(expr) | Self::Readonly(expr) => expr.traverse_mut(&scope, walker, false),
 
             Self::Union(a, b) => {
                 a.traverse_mut(&scope, walker, is_top_level_union);
@@ -171,7 +180,7 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                 index.traverse(&scope, walker, false);
             }
 
-            Self::KeyOf(expr) => expr.traverse(&scope, walker, false),
+            Self::KeyOf(expr) | Self::Readonly(expr) => expr.traverse(&scope, walker, false),
 
             Self::Union(a, b) => {
                 a.traverse(&scope, walker, is_top_level_union);
@@ -234,14 +243,16 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
         own_scope: &ScopePointer<T>,
         other_scope: &ScopePointer<T>,
         infer_other: bool,
+        variance: Variance,
         walker: &mut impl FnMut(
             &Self,            // own_type
             &Self,            // other_type
             &ScopePointer<T>, // current own scope
             &ScopePointer<T>, // current other scope (potentially inferred from `self`)
+            Variance,         // how `own_type` has to relate to `other_type`
         ),
     ) {
-        walker(self, other, own_scope, other_scope);
+        walker(self, other, own_scope, other_scope, variance);
 
         let (own, own_scope) = self.build_uninferred_child_scope(own_scope);
         let (other, other_scope) = if infer_other {
@@ -253,22 +264,22 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
         match (own.as_ref(), other.as_ref()) {
             // Unions first so that during candidate collection type type type params get visited by all union variants before being looked up.
             (Self::Union(own_a, own_b), other) => {
-                own_a.traverse_parallel(other, &own_scope, &other_scope, infer_other, walker);
-                own_b.traverse_parallel(other, &own_scope, &other_scope, infer_other, walker);
+                own_a.traverse_parallel(other, &own_scope, &other_scope, infer_other, Variance::Covariant, walker);
+                own_b.traverse_parallel(other, &own_scope, &other_scope, infer_other, Variance::Covariant, walker);
             }
 
             (own, Self::Union(other_a, other_b)) => {
-                own.traverse_parallel(other_a, &own_scope, &other_scope, infer_other, walker);
-                own.traverse_parallel(other_b, &own_scope, &other_scope, infer_other, walker);
+                own.traverse_parallel(other_a, &own_scope, &other_scope, infer_other, Variance::Covariant, walker);
+                own.traverse_parallel(other_b, &own_scope, &other_scope, infer_other, Variance::Covariant, walker);
             }
 
             (Self::Bounded { lower, upper }, other) => {
-                lower.traverse_parallel(other, &own_scope, &other_scope, infer_other, walker);
-                upper.traverse_parallel(other, &own_scope, &other_scope, infer_other, walker);
+                lower.traverse_parallel(other, &own_scope, &other_scope, infer_other, Variance::Covariant, walker);
+                upper.traverse_parallel(other, &own_scope, &other_scope, infer_other, Variance::Covariant, walker);
             }
 
             (own, Self::Bounded { upper, .. }) => {
-                own.traverse_parallel(upper, &own_scope, &other_scope, infer_other, walker);
+                own.traverse_parallel(upper, &own_scope, &other_scope, infer_other, Variance::Covariant, walker);
             }
 
             (Self::Operation { a, b, operator }, other) => {
@@ -282,6 +293,7 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                     &own_scope,
                     &other_scope,
                     infer_other,
+                    variance,
                     walker,
                 );
             }
@@ -296,6 +308,7 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                     &other_scope,
                     &own_scope,
                     infer_other,
+                    variance,
                     walker,
                 );
             }
@@ -305,10 +318,17 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                     let Some((own_inferred, own_inferred_scope)) = own_scope.lookup_inferred(&param.param_id) else {
                         return;
                     };
-                    own_inferred.traverse_parallel(other, &own_inferred_scope, &other_scope, infer_other, walker);
+                    own_inferred.traverse_parallel(
+                        other,
+                        &own_inferred_scope,
+                        &other_scope,
+                        infer_other,
+                        variance,
+                        walker,
+                    );
                 }
                 ScopedTypeRef::ScopedExpr { expr, scope } => {
-                    expr.traverse_parallel(other, scope, &other_scope, infer_other, walker)
+                    expr.traverse_parallel(other, scope, &other_scope, infer_other, variance, walker)
                 }
             },
             (own, Self::Ref(other_ref)) => match other_ref {
@@ -317,25 +337,50 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                     else {
                         return;
                     };
-                    own.traverse_parallel(&other_inferred, &own_scope, &other_inferred_scope, infer_other, walker);
+                    own.traverse_parallel(
+                        &other_inferred,
+                        &own_scope,
+                        &other_inferred_scope,
+                        infer_other,
+                        variance,
+                        walker,
+                    );
                 }
                 ScopedTypeRef::ScopedExpr { expr, scope } => {
-                    own.traverse_parallel(expr, &own_scope, scope, infer_other, walker)
+                    own.traverse_parallel(expr, &own_scope, scope, infer_other, variance, walker)
                 }
             },
+
+            // `readonly T` resolves as far as it can, so that `T` meets `other` if it can't be resolved.
+            (Self::Readonly(_), other) => {
+                let readonly = own.normalize(&own_scope);
+                let readonly = match &readonly {
+                    Self::Readonly(expr) => expr.as_ref(),
+                    readonly => readonly,
+                };
+                readonly.traverse_parallel(other, &own_scope, &other_scope, infer_other, Variance::Covariant, walker);
+            }
+            (own, Self::Readonly(_)) => {
+                let readonly = other.normalize(&other_scope);
+                let readonly = match &readonly {
+                    Self::Readonly(expr) => expr.as_ref(),
+                    readonly => readonly,
+                };
+                own.traverse_parallel(readonly, &own_scope, &other_scope, infer_other, Variance::Covariant, walker);
+            }
 
             (Self::KeyOf(own_expr), other) => {
                 let Some((keyof, keyof_scope)) = own_expr.keyof(&own_scope) else {
                     return;
                 };
-                keyof.traverse_parallel(other, &keyof_scope, &other_scope, infer_other, walker);
+                keyof.traverse_parallel(other, &keyof_scope, &other_scope, infer_other, variance, walker);
             }
 
             (own, Self::KeyOf(other_expr)) => {
                 let Some((keyof, keyof_scope)) = other_expr.keyof(&other_scope) else {
                     return;
                 };
-                own.traverse_parallel(&keyof, &own_scope, &keyof_scope, infer_other, walker);
+                own.traverse_parallel(&keyof, &own_scope, &keyof_scope, infer_other, variance, walker);
             }
 
             (Self::Intersection(own_a, own_b), other) => {
@@ -347,6 +392,7 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                         &own_intersection_scope,
                         &other_scope,
                         infer_other,
+                        Variance::Covariant,
                         walker,
                     );
                 }
@@ -361,6 +407,7 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                         &own_scope,
                         &other_intersection_scope,
                         infer_other,
+                        Variance::Covariant,
                         walker,
                     );
                 }
@@ -372,13 +419,24 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                 Self::Constructor { parameters: own_params, inner: own_inner },
                 Self::Constructor { parameters: other_params, inner: other_inner },
             ) => {
-                if !own_inner.supertype_of(other_inner) {
+                if !leaf_supertype_of(own_inner, other_inner) && !leaf_supertype_of(other_inner, own_inner) {
                     return;
                 }
+                let mutable =
+                    own_inner.readonly_counterpart().is_some() && other_inner.readonly_counterpart().is_some();
                 // Traverse over all common params
                 for (key, own_param) in own_params {
                     if let Some(other_param) = other_params.get(key) {
-                        own_param.traverse_parallel(other_param, &own_scope, &other_scope, infer_other, walker);
+                        let param_variance =
+                            if mutable && !own_param.is_bounded() { Variance::Invariant } else { variance };
+                        own_param.traverse_parallel(
+                            other_param,
+                            &own_scope,
+                            &other_scope,
+                            infer_other,
+                            param_variance,
+                            walker,
+                        );
                     }
                 }
             }
@@ -389,6 +447,7 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                     &own_scope,
                     &other_scope,
                     infer_other,
+                    Variance::Covariant,
                     walker,
                 );
                 own_signature.outputs.traverse_parallel(
@@ -396,6 +455,7 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                     &own_scope,
                     &other_scope,
                     infer_other,
+                    Variance::Covariant,
                     walker,
                 );
                 // What to do with type parameters?
@@ -408,7 +468,14 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                 while let (Some(own_port), Some(other_port)) =
                     (own_ports.get_port_type(i), other_ports.get_port_type(i))
                 {
-                    own_port.traverse_parallel(other_port, &own_scope, &other_scope, infer_other, walker);
+                    own_port.traverse_parallel(
+                        other_port,
+                        &own_scope,
+                        &other_scope,
+                        infer_other,
+                        Variance::Covariant,
+                        walker,
+                    );
                     i += 1;
                     if i >= max_arg_count {
                         break; // In case both have variadic ports.
@@ -420,26 +487,26 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                 let Some((own_idx, own_idx_scope)) = expr.index(index, &own_scope, &own_scope) else {
                     return;
                 };
-                own_idx.traverse_parallel(other, &own_idx_scope, &other_scope, infer_other, walker)
+                own_idx.traverse_parallel(other, &own_idx_scope, &other_scope, infer_other, variance, walker)
             }
             (own, Self::Index { expr, index }) => {
                 let Some((other_idx, other_idx_scope)) = expr.index(index, &other_scope, &other_scope) else {
                     return;
                 };
-                own.traverse_parallel(&other_idx, &own_scope, &other_idx_scope, infer_other, walker)
+                own.traverse_parallel(&other_idx, &own_scope, &other_idx_scope, infer_other, variance, walker)
             }
 
             (Self::Conditional(own_conditional), other) => {
                 let Some(distributed) = own_conditional.distribute(&own_scope) else {
                     return;
                 };
-                distributed.traverse_parallel(other, &own_scope, &other_scope, infer_other, walker)
+                distributed.traverse_parallel(other, &own_scope, &other_scope, infer_other, variance, walker)
             }
             (own, Self::Conditional(other_conditional)) => {
                 let Some(distributed) = other_conditional.distribute(&other_scope) else {
                     return;
                 };
-                own.traverse_parallel(&distributed, &own_scope, &other_scope, infer_other, walker)
+                own.traverse_parallel(&distributed, &own_scope, &other_scope, infer_other, variance, walker)
             }
 
             (Self::Any | Self::Never, _) => (),

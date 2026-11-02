@@ -107,8 +107,8 @@ impl FormattableType for DemoType {
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {
         match self {
-            Self::Array => {
-                write!(f, "Array")?;
+            Self::Array | Self::MutableArray => {
+                f.write_str(if matches!(self, Self::MutableArray) { "MutableArray" } else { "Array" })?;
                 if let Some(elements_type) = parameters.get("elements_type") {
                     write!(f, "<")?;
                     elements_type.format_type(f, false)?;
@@ -121,7 +121,10 @@ impl FormattableType for DemoType {
             Self::Countable => Ok(write!(f, "Countable")?),
             Self::Float => Ok(write!(f, "Float")?),
             Self::Integer => Ok(write!(f, "Integer")?),
-            Self::Record => {
+            Self::Record | Self::MutableRecord => {
+                if matches!(self, Self::MutableRecord) {
+                    f.write_str("mut ")?;
+                }
                 f.write_str("{")?;
                 let mut first = true;
                 for (ident, t) in parameters {
@@ -218,11 +221,11 @@ impl<T: FormattableType, R: UnscopedRef> TypeExpr<T, R> {
                     b.format_type(f, true)
                 }
             }
-            Self::KeyOf(expr) => {
+            Self::KeyOf(expr) | Self::Readonly(expr) => {
                 if atomic {
                     write!(f, "(")?;
                 }
-                write!(f, "keyof ")?;
+                f.write_str(if matches!(self, Self::KeyOf(_)) { "keyof " } else { "readonly " })?;
                 expr.format_type(f, true)?;
                 if atomic {
                     write!(f, ")")?;

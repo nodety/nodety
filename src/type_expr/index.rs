@@ -89,6 +89,10 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 let (keys, keys_scope) = expr.keyof(own_scope)?;
                 keys.index(index_type, &keys_scope, index_scope)
             }
+            Self::Readonly(expr) => {
+                let (indexed, indexed_scope) = expr.index(index_type, own_scope, index_scope)?;
+                Some((TypeExpr::Readonly(Box::new(indexed)), indexed_scope))
+            }
 
             // These can't be indexed.
             Self::NodeSignature(_) => Some((TypeExpr::Any, ScopePointer::clone(own_scope))),

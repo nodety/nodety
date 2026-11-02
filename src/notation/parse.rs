@@ -228,6 +228,7 @@ fn parse_atomic_type_expr<T: ParsableType, R: ParamTypeRef>(input: &str) -> IRes
         value(TypeExpr::Any, tag("Any")),
         value(TypeExpr::Never, tag("Never")),
         parse_keyof,
+        parse_readonly,
         parse_type_parameter.map(|(id, infer)| TypeExpr::param_with_infer(id, infer)),
         parse_type_expr_in_brackets,
     ))
@@ -251,6 +252,10 @@ fn parse_sig_input_output<T: ParsableType, R: ParamTypeRef>(
 
 fn parse_keyof<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
     (ws0(tag("keyof ")), parse_atomic_type_expr).map(|(_, expr)| TypeExpr::KeyOf(Box::new(expr))).parse(input)
+}
+
+fn parse_readonly<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
+    (ws0(tag("readonly ")), parse_atomic_type_expr).map(|(_, expr)| TypeExpr::Readonly(Box::new(expr))).parse(input)
 }
 
 fn parse_type_parameter_declaration<T: ParsableType, R: ParamTypeRef>(
@@ -345,6 +350,8 @@ impl ParsableType for DemoType {
             map(parse_si_unit, |(unit, scale)| TypeExpr::Type(DemoType::SI(unit, scale))),
             parse_array,
             parse_record.map(|parameters| TypeExpr::Constructor { inner: DemoType::Record, parameters }),
+            preceded(tag("mut "), parse_record)
+                .map(|parameters| TypeExpr::Constructor { inner: DemoType::MutableRecord, parameters }),
         ))
         .parse(input)
     }
@@ -376,13 +383,15 @@ pub fn parse_si_unit(input: &str) -> IResult<&str, (SIUnit, f64)> {
 }
 
 fn parse_array<R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<DemoType, R>> {
-    (tag("Array"), opt((char('<'), parse_type_expr, char('>'))))
-        .map(|(_, elements_type)| match elements_type {
-            Some((_, elements_type, _)) => TypeExpr::Constructor {
-                inner: DemoType::Array,
-                parameters: [("elements_type".into(), elements_type)].into(),
-            },
-            None => TypeExpr::Type(DemoType::Array),
+    (
+        alt((value(DemoType::Array, tag("Array")), value(DemoType::MutableArray, tag("MutableArray")))),
+        opt((char('<'), parse_type_expr, char('>'))),
+    )
+        .map(|(inner, elements_type)| match elements_type {
+            Some((_, elements_type, _)) => {
+                TypeExpr::Constructor { inner, parameters: [("elements_type".into(), elements_type)].into() }
+            }
+            None => TypeExpr::Type(inner),
         })
         .parse(input)
 }

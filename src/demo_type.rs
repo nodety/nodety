@@ -66,8 +66,14 @@ pub enum DemoType {
     Comparable,
     Sortable,
     Unit,
+    /// Read-only record: `{a: T}`.
     Record,
+    /// Read-only array: `Array<T>`.
     Array,
+    /// Record that can be written to: `mut {a: T}`.
+    MutableRecord,
+    /// Array that can be written to: `MutableArray<T>`.
+    MutableArray,
     SI(SIUnit, f64),
     AnySI,
 }
@@ -110,6 +116,10 @@ impl Type for DemoType {
 
             (Self::Array, Self::Array) => true,
 
+            (Self::MutableRecord, Self::MutableRecord) => true,
+
+            (Self::MutableArray, Self::MutableArray) => true,
+
             // Interfaces
             (Self::Comparable, Self::Comparable | Self::Integer | Self::Float) => true,
             (Self::Countable, Self::Countable | Self::Array | Self::Record) => true,
@@ -142,7 +152,7 @@ impl Type for DemoType {
 
     fn key_type<R: TypeRef>(&self, fields: &ConstructorParams<Self, R>) -> ConcreteTypeExpr<Self> {
         match self {
-            Self::Record => {
+            Self::Record | Self::MutableRecord => {
                 let mut keys = fields.keys().cloned().collect::<Vec<String>>();
                 let Some(first) = keys.pop() else {
                     return TypeExpr::Never;
@@ -160,7 +170,7 @@ impl Type for DemoType {
                 current
             }
             #[allow(deprecated)]
-            Self::Array => TypeExpr::Type(Self::Integer),
+            Self::Array | Self::MutableArray => TypeExpr::Type(Self::Integer),
             _ => TypeExpr::Never,
         }
     }
@@ -171,7 +181,7 @@ impl Type for DemoType {
         index: &ConcreteTypeExpr<Self>,
     ) -> TypeExpr<Self, R> {
         match (self, index) {
-            (Self::Record, index) => {
+            (Self::Record | Self::MutableRecord, index) => {
                 let mut union_str_literals: Vec<Option<&String>> = vec![];
                 index.traverse_union_non_context_sensitive(&mut |expr| {
                     if let TypeExpr::Type(Self::String(Some(literal))) = expr {
@@ -195,7 +205,7 @@ impl Type for DemoType {
                 TypeExpr::from_unions(indexed)
             }
 
-            (Self::Array, index) => {
+            (Self::Array | Self::MutableArray, index) => {
                 if !matches!(index, TypeExpr::Type(Self::Integer)) {
                     return TypeExpr::Type(Self::Unit);
                 }
@@ -210,5 +220,13 @@ impl Type for DemoType {
 
     fn optional_in_constructor(&self) -> bool {
         matches!(self, Self::Unit)
+    }
+
+    fn readonly_counterpart(&self) -> Option<Self> {
+        match self {
+            Self::MutableRecord => Some(Self::Record),
+            Self::MutableArray => Some(Self::Array),
+            _ => None,
+        }
     }
 }

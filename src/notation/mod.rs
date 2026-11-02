@@ -47,6 +47,7 @@
 //! - **Node signature**: `(inputs) -> (outputs)` or `<T>(T) -> (T)`
 //! - **Built-in**: `Any`, `Never`
 //! - **keyof**: `keyof T` — keys of a record/object type
+//! - **readonly**: `readonly T` — `T` with every mutable type replaced by its read-only counterpart, see [`TypeExpr::Readonly`](crate::type_expr::TypeExpr::Readonly)
 //! - **Type parameter**: `T`, `U`, or `#0`, `#1` (numeric ids). Prefix `!` to exclude from inference: `!T`
 //! - **Parentheses**: `(type_expr)` for grouping
 //! - **Custom types**: Parsed via [`ParsableType::parse`](parse::ParsableType::parse) (e.g. `Integer`, `Array<T>`, `{a: T}`)
@@ -82,8 +83,9 @@
 //! | `Integer`, `Float`, `Boolean`, `String`, `Unit` | Primitives |
 //! | `Comparable`, `Countable`, `Sortable` | Interfaces |
 //! | `"literal"` or `'literal'` | String literal |
-//! | `Array<T>` | Generic array |
-//! | `{a: T, b: U}` | Record with fields |
+//! | `Array<T>` | Generic (read-only) array |
+//! | `{a: T, b: U}` | (Read-only) record with fields |
+//! | `MutableArray<T>`, `mut {a: T}` | [Mutable](crate::Type::readonly_counterpart) array and record |
 //! | `SI(scale, s, m, kg, a, k, mol, cd)` | SI units |
 //! | `AnySI` | Any SI unit |
 //! | `A * B`, `A / B` | SI multiplication/division |

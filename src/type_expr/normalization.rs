@@ -30,6 +30,8 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 key.normalize(&key_scope)
             }
 
+            Self::Readonly(expr) => expr.normalize(&scope).into_readonly(),
+
             // The operands have to be fully resolved before the operation can be evaluated.
             // As long as they aren't, the operation stays as it is and gets evaluated later.
             Self::Operation { a, b, operator } => match (a.normalize_concrete(&scope), b.normalize_concrete(&scope)) {
