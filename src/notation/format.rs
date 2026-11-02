@@ -170,7 +170,7 @@ impl<T: FormattableType, R: UnscopedRef> NodeSignature<T, R> {
         write!(f, " -> ")?;
         self.outputs.format_type(f, true)?;
         if self.effects != TypeExpr::Never {
-            write!(f, " ! ")?;
+            write!(f, " effects ")?;
             format_effects(&self.effects, f)?;
         }
         if self.handles != TypeExpr::Never {

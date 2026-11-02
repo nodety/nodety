@@ -8,25 +8,25 @@
 //!
 //! ## Node Signatures
 //!
-//! A node signature has the form `[<params>] (inputs) -> (outputs) [! effects] [handles effects]`:
+//! A node signature has the form `[<params>] (inputs) -> (outputs) [effects A | B] [handles C | D]`:
 //!
 //! ```text
 //! <T, U extends Comparable>(T, U) -> (Integer)
 //! <T>(Integer = 0) -> (T)           // default input type
 //! () -> (Never)                     // no params, empty inputs, Never output
-//! () -> (Integer) ! A | B           // effects A and B
-//! <E>() -> () ! E handles A         // handles the effect A of its children
+//! () -> (Integer) effects A | B     // effects A and B
+//! <E>() -> () effects E handles A   // handles the effect A of its children
 //! ```
 //!
 //! - **Parameters** (optional): `<T>`, `<T, U extends Bound>` or `<T = Any>`
 //! - **Inputs**: `(port1, port2, ...)` or `(port1, port2, ...rest)` for variadic
 //! - **Outputs**: same format
 //! - **Defaults**: `(Type = default)` on an input gives a default when unconnected
-//! - **Effects** (optional): `! A | B`, a union of atomic expressions. Without them the effects are `Never`.
-//! - **Handled effects** (optional): `handles A | B`, same form.
+//! - **Effects** (optional): `effects A | B`, a union of atomic expressions. Without them the effects are `Never`.
+//! - **Handled effects** (optional): `handles A | B`, same form, after the effects.
 //!
 //! Effects extend a signature to the right, so a signature with effects is put in parentheses where it is followed
-//! by more: `((T) -> (U) ! E) | Integer`.
+//! by more: `((T) -> (U) effects E) | Integer`.
 //!
 //! ## Type Expressions
 //!

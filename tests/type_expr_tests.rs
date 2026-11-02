@@ -22,9 +22,9 @@ pub fn test_never_of_signatures() {
 
 #[test]
 pub fn test_mother_of_signatures() {
-    let mother_of_signatures = sig("Never -> Any ! Any");
+    let mother_of_signatures = sig("Never -> Any effects Any");
 
-    let child = sig("<T>(T, String) -> (Integer, T) ! Nondeterministic");
+    let child = sig("<T>(T, String) -> (Integer, T) effects Nondeterministic");
 
     assert!(mother_of_signatures.clone().supertype_of(child).is_supertype());
 

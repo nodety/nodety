@@ -324,8 +324,8 @@ fn parse_node_signature<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResul
         parse_sig_input_output,
         ws0(tag("->")),
         parse_sig_input_output,
-        opt(preceded(ws0(char('!')), parse_effects)),
-        opt(preceded((multispace1, tag("handles"), multispace1), parse_effects)),
+        opt(preceded(keyword("effects"), parse_effects)),
+        opt(preceded(keyword("handles"), parse_effects)),
     )
         .map(
             |(params, _, (inputs, default_input_types), _, (outputs, _discarded_default_outputs), effects, handles)| {
@@ -342,11 +342,15 @@ fn parse_node_signature<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResul
         .parse(input)
 }
 
-/// A union of atomic expressions, so that a signature stays atomic: `() -> () ! A | B` has the effects `A | B`.
+/// A union of atomic expressions, so that a signature stays atomic: `() -> () effects A | B` has the effects `A | B`.
 fn parse_effects<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
     let (input, first) = parse_atomic_type_expr(input)?;
     fold_many0(preceded(ws0(char('|')), parse_atomic_type_expr), move || first.clone(), TypeExpr::union_with)
         .parse(input)
+}
+
+fn keyword<'a>(keyword: &'static str) -> impl Parser<&'a str, Output = &'a str, Error = nom::error::Error<&'a str>> {
+    delimited(multispace1, tag(keyword), multispace1)
 }
 
 impl ParsableType for DemoType {
