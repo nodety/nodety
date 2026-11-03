@@ -90,10 +90,11 @@ impl<T: Type, R: AsScopedRef<T>> Mapped<T, R> {
                     .map(|(field, field_type)| {
                         let field_only: ConstructorParams<T, _> = [(field.clone(), field_type.clone())].into();
                         let key = inner.key_type(&field_only).into_scoped();
-                        let value = TypeExpr::scope_portal(
-                            self.value.clone().into_scoped(),
-                            self.value_scope(scope, Some(key)),
-                        );
+                        // Evaluated now rather than left as a lazy portal to `value`: subtyping splits a union parent
+                        // before it evaluates a lazy child, so a field `T[K] = String | Unit` failed
+                        // `String | Unit ⊇ field`.
+                        let value_scope = self.value_scope(scope, Some(key));
+                        let value = TypeExpr::scope_portal(self.value.normalize(&value_scope), value_scope);
                         (field.clone(), value)
                     })
                     .collect();

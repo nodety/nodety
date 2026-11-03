@@ -168,3 +168,24 @@ fn test_mapped_input_rejects_a_field() {
 fn common_scope(params: &str) -> nodety::scope::Scope<nodety::demo_type::DemoType> {
     params.parse().unwrap()
 }
+
+const OVERRIDE_B: &str = "<T extends {b: Integer}>(T) -> ({[K in keyof T]: K extends 'b' ? Float : (T[K])})";
+
+/// A field the mapped type passes through keeps its union type, so it fits a union bound. Fields used to stay lazy
+/// conditionals, and subtyping split the union parent before evaluating the child.
+#[test]
+fn test_passed_through_union_field_fits_a_union() {
+    let engine = graph(
+        vec![
+            sig_u("() -> ({a: String | Unit, b: Integer})"),
+            sig_u(OVERRIDE_B),
+            sig_u("({a: String | Unit}) -> ()"),
+            sig_u("<X extends {a: String | Unit}>(X) -> ()"),
+        ],
+        vec![(0, 1, 0, 0), (1, 2, 0, 0), (1, 3, 0, 0)],
+    );
+    let scopes = engine.infer(&InferenceConfig::default());
+    assert_eq!(engine.validate(&scopes), []);
+    let (x, x_scope) = scopes.get(&NodeIndex::from(3)).unwrap().lookup_inferred(&LocalParamID::from("X")).unwrap();
+    assert_eq!(x.normalize(&x_scope), expr("{a: String | Unit, b: Float}"));
+}
