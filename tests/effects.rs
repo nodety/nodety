@@ -324,3 +324,51 @@ fn a_mismatching_constructor_gives_no_candidates() {
     let matching = pattern.collect_candidates(&expr("{key: 'dns', row: {a: Integer}}"), &scope, &root, false, false);
     assert_eq!(matching.len(), 1);
 }
+
+/// Below a parent that bounds its effects, a handled effect with a parameter that no child matches doesn't hide the
+/// effects that escape: they are effects of the group, which validation then reports.
+#[test]
+fn escaping_effects_of_a_group_with_a_handled_parameter_stay_its_effects() {
+    let mut nodety = Nodety::<DemoType>::new();
+    let root = nodety.add_node(sig_u("() -> () effects <Nondeterministic>")).unwrap();
+    let group = nodety
+        .add_node(Node::new_child(
+            sig_u("<R extends {} = {}, E = Never>() -> (Array<R>) effects <E> handles <{key: 'other', row: R}>"),
+            root,
+        ))
+        .unwrap();
+    let throwing = "() -> () effects <Nondeterministic> <{key: 'dns', row: {a: Integer}}>";
+    nodety.add_node(Node::new_child(sig_u(throwing), group)).unwrap();
+
+    let scopes = nodety.infer(&InferenceConfig::default());
+
+    let effects = inferred(&scopes, group, "E");
+    let root_scope = ScopePointer::new_root();
+    let escaping = expr("Nondeterministic | {key: 'dns', row: {a: Integer}}");
+    assert!(effects.supertype_of(&escaping, &root_scope, &root_scope).is_supertype(), "{effects:?}");
+    assert_matches!(
+        &nodety.validate(&scopes)[..],
+        [ValidationError { location: GraphLocation::Node { node_idx }, kind: ValidationErrorKind::UnhandledEffects(_) }]
+            if *node_idx == group.index()
+    );
+}
+
+#[test]
+fn a_handled_parameter_infers_below_a_bounding_parent() {
+    let mut nodety = Nodety::<DemoType>::new();
+    let root = nodety.add_node(sig_u("() -> () effects <Nondeterministic>")).unwrap();
+    let group = nodety
+        .add_node(Node::new_child(
+            sig_u("<R extends {} = {}, E = Never>() -> (Array<R>) effects <E> handles <{key: 'dns', row: R}>"),
+            root,
+        ))
+        .unwrap();
+    let throwing = "() -> () effects <Nondeterministic> <{key: 'dns', row: {a: Integer}}>";
+    nodety.add_node(Node::new_child(sig_u(throwing), group)).unwrap();
+
+    let scopes = nodety.infer(&InferenceConfig::default());
+
+    assert_eq!(inferred(&scopes, group, "R"), expr("{a: Integer}"));
+    assert_eq!(inferred(&scopes, group, "E"), expr("Nondeterministic"));
+    assert_eq!(nodety.validate(&scopes), []);
+}
