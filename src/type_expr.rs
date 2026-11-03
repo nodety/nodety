@@ -47,7 +47,7 @@ pub mod to_type_expr;
 pub mod traversal;
 
 pub use conversions::HasScopePortals;
-pub use rigid::{LinearArithmetic, LinearForm};
+pub use rigid::{OperandRef, RigidRef, RigidTypeExpr};
 pub use to_type_expr::ToTypeExpr;
 
 /// Type expression—the core type representation in nodety.
@@ -377,7 +377,7 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
             }
             // Unknown as long as the operands aren't fully resolved. An operation over rigid parameters is no `Any`.
             Self::Operation { a, b, operator } => {
-                if self.rigid_linear_form(scope).is_some() {
+                if self.rigid_parent_form(scope).is_some() {
                     return Some(false);
                 }
                 let a = a.normalize_concrete(scope)?;

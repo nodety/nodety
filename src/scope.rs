@@ -125,6 +125,11 @@ impl<T: Type> ScopePointer<T> {
     pub fn new_root() -> Self {
         Self(Rc::new(Scope::new_root()))
     }
+
+    /// Identifies the scope as [PartialEq] does.
+    pub(crate) fn address(&self) -> usize {
+        Rc::as_ptr(&self.0) as usize
+    }
 }
 
 /// Type scope in the tree of types.

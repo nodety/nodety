@@ -33,8 +33,8 @@ pub struct TypeParameter<T: Type, R: TypeRef = ParamRef> {
     /// A rigid parameter (`<rigid T>`) is never inferred: it stands for one fixed but unknown type within its bound,
     /// as the parameters of a generic function do while its body gets checked.
     ///
-    /// As a child it is its bound. As a parent it is a supertype only of itself and `Never` (and, with
-    /// [Type::linear_arithmetic](crate::Type::linear_arithmetic), of operations that are linearly equal to it).
+    /// As a child it is its bound. As a parent it is a supertype only of itself and `Never`, and of operations that
+    /// [Type::operation](crate::Type::operation) computes to it (`N + 0`).
     #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "std::ops::Not::not"))]
     pub rigid: bool,
 }

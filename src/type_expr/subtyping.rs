@@ -2,7 +2,7 @@ use crate::{
     scope::ScopePointer,
     r#type::Type,
     type_expr::{
-        AsScopedRef, ErasedScopedTypeRef, LinearForm, NoRef, ParamRef, ScopedRefView, ScopedTypeExpr, ScopedTypeRef,
+        AsScopedRef, ErasedScopedTypeRef, NoRef, ParamRef, RigidTypeExpr, ScopedRefView, ScopedTypeExpr, ScopedTypeRef,
         TypeExpr,
     },
 };
@@ -299,7 +299,7 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
         // Use the parent to infer the child's types.
         let (child, child_scope) = child.build_inferred_child_scope(parent.as_ref(), child_scope, &parent_scope);
 
-        if let Some(parent_form) = parent.rigid_linear_form(&parent_scope) {
+        if let Some(parent_form) = parent.rigid_parent_form(&parent_scope) {
             return rigid_supertype_of::<T, D, R, R2>(&parent_form, parent.as_ref(), child.as_ref(), &child_scope);
         }
 
@@ -384,14 +384,10 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
             },
 
             // As long as the operands aren't fully resolved, the operation can't be evaluated.
-            (TypeExpr::Operation { a, b, operator }, child) => {
-                let a_normalized = a.normalize_concrete(&parent_scope).ok_or(Unknown)?;
-                let b_normalized = b.normalize_concrete(&parent_scope).ok_or(Unknown)?;
-                T::operation(&a_normalized, operator, &b_normalized).supertype_of_impl::<D, R2>(
-                    child,
-                    &parent_scope,
-                    &child_scope,
-                )
+            // An operation over rigid parameters may compute to a concrete type, like `N - N`.
+            (parent @ TypeExpr::Operation { .. }, child) => {
+                let computed = parent.rigid_form(&parent_scope).and_then(|form| form.try_into_concrete().ok());
+                computed.ok_or(Unknown)?.supertype_of_impl::<D, R2>(child, &parent_scope, &child_scope)
             }
 
             // A rigid parameter in the child is its bound.
@@ -815,10 +811,10 @@ fn child_param_supertype_of<T: Type, D: SupertypeDiagnostics<T>, Rp: AsScopedRef
     }
 }
 
-/// `parent` has the linear form `parent_form` with at least one rigid term: it is a supertype only of children with
-/// the same terms (and a narrower constant) and of `Never`.
+/// `parent` has the [rigid_form](TypeExpr::rigid_form) `parent_form`, which references a rigid parameter: it is a
+/// supertype only of `Never` and of children with the same form.
 fn rigid_supertype_of<T: Type, D: SupertypeDiagnostics<T>, Rp: AsScopedRef<T>, Rc: AsScopedRef<T>>(
-    parent_form: &LinearForm<T>,
+    parent_form: &RigidTypeExpr<T>,
     parent: &TypeExpr<T, Rp>,
     child: &TypeExpr<T, Rc>,
     child_scope: &ScopePointer<T>,
@@ -858,8 +854,8 @@ fn rigid_supertype_of<T: Type, D: SupertypeDiagnostics<T>, Rp: AsScopedRef<T>, R
         }
         _ => (),
     }
-    match child.linear_form(child_scope) {
-        Some(child_form) if parent_form.supertype_of(&child_form) => Ok(()),
+    match child.rigid_form(child_scope) {
+        Some(child_form) if child_form == *parent_form => Ok(()),
         None if child.clone().into_scoped().contains_uninferred(child_scope) => Err(Unknown),
         _ => Err(Unrelated(D::new(parent, child, None))),
     }

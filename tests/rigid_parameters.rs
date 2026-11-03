@@ -2,11 +2,11 @@
 use crate::common::{expr, sig_u};
 use nodety::{
     Edge, Node, Nodety,
-    demo_type::DemoType,
+    demo_type::{DemoOperator, DemoType},
     inference::{InferenceConfig, Scopes},
     scope::{Scope, ScopeError, ScopePointer},
     type_expr::{
-        ScopedTypeExpr, TypeExpr,
+        ScopedTypeExpr, ScopedTypeRef, TypeExpr,
         subtyping::{NoSupertypeDiagnostics, SupertypeResult},
     },
     validation::{ValidationError, ValidationErrorKind},
@@ -122,6 +122,27 @@ fn as_a_parent_a_rigid_parameter_accepts_only_itself() {
     assert_eq!(supertype("N", "U", &scope), SupertypeResult::Unknown);
 }
 
+/// The demo type computes `+` and `-` over rigid parameters to a canonical form, which nodety compares structurally.
+#[test]
+fn operations_over_rigid_parameters_have_a_canonical_form() {
+    let scope = rigid_scope("<rigid N extends Integer, rigid M extends Integer>");
+    let canonical = |notation: &str| expr(notation).rigid_form(&scope).expect("a rigid form");
+    for (notation, expected) in [
+        ("(N + 1) + 1", "N + 2"),
+        ("1 + N", "N + 1"),
+        ("(N + 0) + 1", "N + 1"),
+        ("M + N", "N + M"),
+        ("(N - M) + N", "(N + N) - M"),
+        ("1 - N", "1 - N"),
+        ("(N - 3) + 1", "N - 2"),
+    ] {
+        assert_eq!(canonical(notation), canonical(expected), "{notation}");
+    }
+    assert_eq!(expr("(N + 1) + 1").normalize(&scope), expr("N + 2").normalize(&scope));
+    assert_ne!(canonical("N + 1"), canonical("N + 2"));
+    assert_ne!(canonical("N + M"), canonical("N + N"));
+}
+
 #[test]
 fn operations_over_rigid_parameters_compare_linearly() {
     let scope = rigid_scope("<rigid N extends Integer, rigid M extends Integer>");
@@ -206,9 +227,9 @@ fn arithmetic_in_a_body() {
     let program = Program::new(&nodes("(N + 1) -> ()"), &edges);
     assert_eq!(program.errors(), []);
     let (inferred, scope) = program.inferred(4, "R");
-    let form = inferred.linear_form(&scope).expect("a linear form");
-    assert_eq!(form.terms.values().collect::<Vec<_>>(), [&1]);
-    assert_eq!(form.constant, Some(TypeExpr::Type(DemoType::IntegerLiteral(1))));
+    let root = &program.scopes[&program.ids[0]];
+    assert_eq!(inferred.rigid_form(&scope), expr("N + 1").rigid_form(root));
+    assert_ne!(inferred.rigid_form(&scope), expr("N + 2").rigid_form(root));
 
     assert_eq!(Program::new(&nodes("(1 + N) -> ()"), &edges).errors(), []);
     assert_eq!(Program::new(&nodes("(Integer) -> ()"), &edges).errors(), []);
@@ -254,4 +275,50 @@ fn rigid_parameters_in_mapped_types() {
         errors.iter().all(|error| !matches!(error.kind, ValidationErrorKind::TypeMismatch(_))) && !errors.is_empty(),
         "{errors:?}"
     );
+}
+
+type Linear = (TypeExpr<DemoType, ScopedTypeRef<DemoType>>, (i64, i64, i64));
+
+fn operation(a: ScopedTypeExpr<DemoType>, add: bool, b: ScopedTypeExpr<DemoType>) -> ScopedTypeExpr<DemoType> {
+    let operator = if add { DemoOperator::Addition } else { DemoOperator::Subtraction };
+    TypeExpr::Operation { a: Box::new(a), operator, b: Box::new(b) }
+}
+
+/// An expression of `N`, `M` and small literals with `+` and `-`, and its value as `(n, m, constant)`.
+fn linear_expression() -> impl proptest::strategy::Strategy<Value = Linear> {
+    use proptest::prelude::*;
+    let literal = |literal: i64| TypeExpr::Type(DemoType::IntegerLiteral(literal));
+    let leaf = prop_oneof![
+        Just((TypeExpr::param("N"), (1, 0, 0))),
+        Just((TypeExpr::param("M"), (0, 1, 0))),
+        (-3i64..4).prop_map(move |value| (literal(value), (0, 0, value))),
+    ];
+    leaf.prop_recursive(5, 32, 2, |inner| {
+        (inner.clone(), any::<bool>(), inner).prop_map(|((a, va), add, (b, vb))| {
+            let sign = if add { 1 } else { -1 };
+            (operation(a, add, b), (va.0 + sign * vb.0, va.1 + sign * vb.1, va.2 + sign * vb.2))
+        })
+    })
+}
+
+/// `constant ± M ± … ± N ± …`: another shape for the value.
+fn reshaped((n, m, constant): (i64, i64, i64)) -> ScopedTypeExpr<DemoType> {
+    let terms =
+        [("M", m), ("N", n)].into_iter().flat_map(|(param, count)| (0..count.abs()).map(move |_| (param, count > 0)));
+    terms.fold(TypeExpr::Type(DemoType::IntegerLiteral(constant)), |expr, (param, add)| {
+        operation(expr, add, TypeExpr::param(param))
+    })
+}
+
+proptest::proptest! {
+    /// The canonical form is complete: two expressions have the same form if and only if they have the same value.
+    #[test]
+    fn equal_values_have_equal_canonical_forms((a, a_value) in linear_expression(), (b, b_value) in linear_expression()) {
+        let scope = rigid_scope("<rigid N extends Integer, rigid M extends Integer>");
+        let form = |expr: &ScopedTypeExpr<DemoType>| expr.rigid_form(&scope).expect("a rigid form");
+        proptest::prop_assert_eq!(form(&a), form(&reshaped(a_value)));
+        proptest::prop_assert_eq!(a_value == b_value, form(&a) == form(&b));
+        proptest::prop_assert_eq!(a_value == b_value, a.supertype_of(&b, &scope, &scope).is_supertype());
+        proptest::prop_assert!(a.supertype_of(&reshaped(a_value), &scope, &scope).is_supertype());
+    }
 }
