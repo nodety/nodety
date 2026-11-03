@@ -302,8 +302,8 @@ impl<T: Type, R: TypeRef> NodeSignature<T, R> {
                 .into_iter()
                 .map(|(k, v)| Ok((k, v.try_map_refs_mut(mapper)?)))
                 .collect::<Result<_, E>>()?,
-            tags: self.tags,
-            required_tags: self.required_tags,
+            effects: self.effects.try_map_refs_mut(mapper)?,
+            handles: self.handles.try_map_refs_mut(mapper)?,
         })
     }
 }

@@ -1,6 +1,5 @@
 use crate::common::{expr, graph, sig_u};
 use assert_matches::assert_matches;
-use maplit::hashset;
 use nodety::{
     Edge, Nodety,
     demo_type::DemoType,
@@ -83,38 +82,6 @@ pub fn test_validate_identity() {
     let engine = graph(vec![sig_u("<T>() -> (T)"), sig_u("<T>(T) -> ()")], vec![(0, 1, 0, 0)]);
     let errors = engine.validate(&engine.infer(&InferenceConfig::default()));
     assert_eq!(errors, []);
-}
-
-///      |  int| ----- |int   int| ----- |int             int|
-///tags: |1,2  |       |1,2      |       |1,2 (required 1, 2)|
-#[test]
-pub fn test_validate_tags() {
-    let engine = graph(
-        vec![
-            sig_u("() -> (Integer)").with_tags(hashset! {1,2}),
-            sig_u("(Integer) -> (Integer)").with_tags(hashset! {1,2}),
-            sig_u("(Integer) -> ()").with_required_tags(hashset! {1,2}),
-        ],
-        vec![(0, 1, 0, 0), (1, 2, 0, 0)],
-    );
-    let errors = engine.validate(&engine.infer(&InferenceConfig::default()));
-    assert_eq!(errors, []);
-}
-
-///      |  int| ----- |int   int| ----- |int                |
-///tags: |1    |       |1,2      |       |1,2 (required 1, 2)|
-#[test]
-pub fn test_invalidate_tags() {
-    let engine = graph(
-        vec![
-            sig_u("() -> (Integer)").with_tags(hashset! {1}),
-            sig_u("(Integer) -> (Integer)").with_tags(hashset! {1,2}),
-            sig_u("(Integer) -> ()").with_required_tags(hashset! {1,2}),
-        ],
-        vec![(0, 1, 0, 0), (1, 2, 0, 0)],
-    );
-    let errors = engine.validate(&engine.infer(&InferenceConfig::default()));
-    assert_matches!(&errors[0], ValidationError { kind: ValidationErrorKind::TagMissing(tags), .. } if tags == &hashset! {2});
 }
 
 ///  |int  |

@@ -1,16 +1,17 @@
 //! Validation of node graphs and type checking.
 use crate::nodety::Nodety;
 use crate::nodety::inference::Scopes;
+use crate::scope::ScopePointer;
 use crate::r#type::Type;
 use crate::type_expr::{
-    TypeExpr, TypeExprValidationError,
+    ConcreteTypeExpr, TypeExpr, TypeExprValidationError,
     subtyping::{DetailedSupertypeDiagnostics, SupertypeResult},
 };
 use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::IntoEdgeReferences;
-use petgraph::visit::{EdgeRef, IntoNodeReferences, Topo};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use petgraph::visit::{EdgeRef, IntoNodeReferences};
+use std::collections::HashSet;
 use std::fmt::Debug;
 
 #[cfg(feature = "json-schema")]
@@ -29,6 +30,7 @@ use tsify::Tsify;
 pub enum GraphLocation {
     Edge(usize),
     InputPort { node_idx: usize, input_idx: usize },
+    Node { node_idx: usize },
 }
 
 impl Default for GraphLocation {
@@ -60,10 +62,6 @@ impl Default for GraphLocation {
 pub enum ValidationErrorKind<T: Type> {
     /// The inferred type for a type parameter is no child type of the parameter bound
     TypeParameterBoundsExceeded,
-    /// An incoming edge is missing one or more tags that the target node
-    /// requires (via [`NodeSignature::required_tags`](crate::type_expr::node_signature::NodeSignature::required_tags)).
-    /// The set contains the specific tag ids that were absent.
-    TagMissing(HashSet<u32>),
     MultipleEdgesOnOneInput,
     EdgeMissingOnInput,
     EdgeHasNoSourceOutput,
@@ -74,6 +72,9 @@ pub enum ValidationErrorKind<T: Type> {
     NonPortTypesIO,
     TypeExprValidationError(TypeExprValidationError),
     TypeMismatch(DetailedSupertypeDiagnostics<T>),
+    /// The node has effects that its parent neither has itself nor handles, or that exceed the bound given to
+    /// [Nodety::validate_with_effect_bound] for nodes without a parent.
+    UnhandledEffects(DetailedSupertypeDiagnostics<T>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -106,14 +107,29 @@ impl<T: Type> Nodety<T> {
     ///   Inputs whose type is optional (see [TypeExpr::is_optional_in_constructor]) are not required.
     /// - All inputs have at most one edge
     /// - Variadic inputs are continuous. Or only interrupted by default types
-    /// - All nodes receive their required tags
+    /// - The effects of all nodes are within the effects their parent allows (see
+    ///   [NodeSignature::handles](crate::type_expr::node_signature::NodeSignature::handles)). The effects of nodes
+    ///   without a parent are unbounded, see [Self::validate_with_effect_bound].
     ///
     /// # Does not validate
     /// - That there are no edges without a matching input (if you need to validate this, you must do it yourself)
     pub fn validate(&self, scopes: &Scopes<T>) -> Vec<ValidationError<T>> {
+        self.validate_impl(scopes, None)
+    }
+
+    /// Like [Self::validate], but the effects of nodes without a parent must also be within `effect_bound`.
+    pub fn validate_with_effect_bound(
+        &self,
+        scopes: &Scopes<T>,
+        effect_bound: &ConcreteTypeExpr<T>,
+    ) -> Vec<ValidationError<T>> {
+        self.validate_impl(scopes, Some(effect_bound))
+    }
+
+    fn validate_impl(&self, scopes: &Scopes<T>, effect_bound: Option<&ConcreteTypeExpr<T>>) -> Vec<ValidationError<T>> {
         let mut errors: Vec<ValidationError<T>> = Vec::new();
 
-        errors.extend(self.validate_tags());
+        errors.extend(self.validate_effects(scopes, effect_bound));
 
         errors.extend(self.validate_required_inputs_set(scopes));
 
@@ -299,41 +315,54 @@ impl<T: Type> Nodety<T> {
         errors
     }
 
-    /// Validates that every node receives the tags it requires.
-    ///
-    /// Walks the graph in topological order, propagating each node's
-    /// effective tag set (intersection of its own
-    /// [`tags`](crate::type_expr::node_signature::NodeSignature::tags) with
-    /// every incoming edge's tags). For each incoming edge, any tag in the
-    /// node's [`required_tags`](crate::type_expr::node_signature::NodeSignature::required_tags)
-    /// that is absent from the source's effective tags produces a
-    /// [`TagMissing`](ValidationErrorKind::TagMissing) error on that edge.
-    fn validate_tags(&self) -> Vec<ValidationError<T>> {
+    /// # Validates
+    /// that the effects of every node are within the effects its parent allows: the parent's own effects and the
+    /// effects it handles. Nodes without a parent are checked against `effect_bound` if there is one.
+    fn validate_effects(
+        &self,
+        scopes: &Scopes<T>,
+        effect_bound: Option<&ConcreteTypeExpr<T>>,
+    ) -> Vec<ValidationError<T>> {
         let mut errors = Vec::new();
-        let mut tags_cache: HashMap<NodeIndex, Option<BTreeSet<u32>>> = HashMap::new();
-        let mut topo = Topo::new(&self.program);
-        while let Some(node_idx) = topo.next(&self.program) {
-            let node = &self.program[node_idx];
-            let Some(mut node_tags) = node.signature.tags.clone() else {
-                tags_cache.insert(node_idx, None);
+        let root_scope = ScopePointer::new_root();
+        for (node_idx, node) in self.program.node_references() {
+            if node.signature.effects == TypeExpr::Never {
+                continue;
+            }
+            let location = GraphLocation::Node { node_idx: node_idx.index() };
+            let insufficiently_inferred =
+                ValidationError { location, kind: ValidationErrorKind::InsufficientlyInferredTypes };
+            let Some(scope) = scopes.get(&node_idx) else {
+                errors.push(insufficiently_inferred);
                 continue;
             };
-            for edge_ref in self.program.edges_directed(node_idx, Direction::Incoming) {
-                let Some(incoming_tags) = tags_cache.get(&edge_ref.source()).unwrap() else {
-                    continue;
-                };
-                let missing_tags: HashSet<u32> =
-                    node.signature.required_tags.difference(incoming_tags).copied().collect();
-                // if let Some(node_tags)
-                node_tags = node_tags.intersection(incoming_tags).copied().collect();
-                if !missing_tags.is_empty() {
-                    errors.push(ValidationError {
-                        location: GraphLocation::Edge(edge_ref.id().index()),
-                        kind: ValidationErrorKind::TagMissing(missing_tags),
-                    });
+            let effects = node.signature.effects.clone().into_scoped();
+            let result = match node.parent {
+                Some(parent_idx) => {
+                    let Some(parent_scope) = scopes.get(&parent_idx) else {
+                        errors.push(insufficiently_inferred);
+                        continue;
+                    };
+                    let parent = &self.program[parent_idx].signature;
+                    let allowed = if parent.handles == TypeExpr::Never {
+                        parent.effects.clone()
+                    } else {
+                        parent.effects.clone().union_with(parent.handles.clone())
+                    };
+                    allowed.supertype_of_detailed(&effects, parent_scope, scope)
                 }
+                None => match effect_bound {
+                    Some(bound) => bound.supertype_of_detailed(&effects, &root_scope, scope),
+                    None => continue,
+                },
+            };
+            match result {
+                SupertypeResult::Supertype => (),
+                SupertypeResult::Unrelated(d) => {
+                    errors.push(ValidationError { location, kind: ValidationErrorKind::UnhandledEffects(d) })
+                }
+                SupertypeResult::Unknown => errors.push(insufficiently_inferred),
             }
-            tags_cache.insert(node_idx, Some(node_tags));
         }
         errors
     }

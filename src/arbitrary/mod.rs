@@ -170,22 +170,27 @@ where
             1 => Just(TypeExpr::Any),
             1 => params.expr_strat.clone(),
         ];
+        let effects_strategy = prop_oneof![
+            // Most common case
+            5 => Just(TypeExpr::Never),
+            1 => params.expr_strat.clone(),
+        ];
 
         (
             any_with::<TypeParameters<T>>(params.clone()),
             ports_strategy.clone(),                                // inputs
             ports_strategy.clone(),                                // outputs
             btree_map(0..5usize, params.expr_strat.clone(), 0..3), // default_input_types
-            any::<Option<BTreeSet<u32>>>(),                        // tags
-            any::<BTreeSet<u32>>(),                                // required_tags
+            effects_strategy.clone(),                              // effects
+            effects_strategy,                                      // handles
         )
-            .prop_map(|(parameters, inputs, outputs, default_input_types, tags, required_tags)| NodeSignature {
+            .prop_map(|(parameters, inputs, outputs, default_input_types, effects, handles)| NodeSignature {
                 parameters,
                 inputs,
                 outputs,
                 default_input_types,
-                tags,
-                required_tags,
+                effects,
+                handles,
             })
             .boxed()
     }
@@ -243,6 +248,8 @@ impl Arbitrary for DemoType {
             Just(DemoType::Record),
             Just(DemoType::Array),
             Just(DemoType::AnySI),
+            Just(DemoType::Nondeterministic),
+            Just(DemoType::Fallible),
             any::<(SIUnit, f64)>().prop_map(|(unit, scale)| DemoType::SI(unit, scale)),
         ]
         .boxed()
