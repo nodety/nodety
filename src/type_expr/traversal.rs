@@ -647,12 +647,13 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
 
     /// `self` with every type parameter replaced by its declared bound in `scope` (or `Any` if it has none): the shape
     /// it matches whatever the parameters get inferred to. The parameters inside a bound are replaced by `Any`.
+    /// References that don't infer (`!T`) stay: their parameter gets inferred elsewhere, and the shape is that type.
     pub(crate) fn with_params_as_bounds(mut self, scope: &ScopePointer<T>) -> Self {
         let root = ScopePointer::new_root();
         self.traverse_mut(
             &root,
             &mut |expr, _, _| {
-                if let Some(param) = expr.as_param() {
+                if let Some(param) = expr.as_param().filter(|param| param.infer) {
                     let bound = scope.lookup(&param.param_id).and_then(|(var, _)| var.parameter().bound.clone());
                     *expr = bound.map_or(TypeExpr::Any, Self::with_params_as_any);
                 }

@@ -353,6 +353,53 @@ fn a_bounded_handled_parameter_without_matching_effects_handles_nothing() {
     );
 }
 
+/// A catch node that handles the effect named by its input: `!I` keeps the children's effects from inferring `I`, and
+/// the effects of other ids pass through to the outer catch.
+fn nested_catches(connect_inner: bool) -> (Nodety<DemoType>, NodeIndex, NodeIndex) {
+    let catch = "<I, E>({id: I}) -> () effects <E> handles <{dq: !I}>";
+    let mut nodety = Nodety::<DemoType>::new();
+    let root = nodety.add_node(sig_u("() -> ()")).unwrap();
+    let source_b = nodety.add_node(Node::new_child(sig_u("() -> ({id: 'b'})"), root)).unwrap();
+    let outer = nodety.add_node(Node::new_child(sig_u(catch), root)).unwrap();
+    nodety.add_edge(source_b, outer, Edge { source_port: 0, target_port: 0 }).unwrap();
+    let source_a = nodety.add_node(Node::new_child(sig_u("() -> ({id: 'a'})"), outer)).unwrap();
+    let inner = nodety.add_node(Node::new_child(sig_u(catch), outer)).unwrap();
+    if connect_inner {
+        nodety.add_edge(source_a, inner, Edge { source_port: 0, target_port: 0 }).unwrap();
+    }
+    nodety.add_node(Node::new_child(sig_u("() -> () effects <{dq: 'a'}> <{dq: 'b'}>"), inner)).unwrap();
+    (nodety, outer, inner)
+}
+
+#[test]
+fn a_handled_effect_named_by_an_input_passes_the_others_on() {
+    let (nodety, outer, inner) = nested_catches(true);
+
+    let scopes = nodety.infer(&InferenceConfig::default());
+
+    assert_eq!(inferred(&scopes, inner, "I"), expr("'a'"));
+    assert_eq!(inferred(&scopes, inner, "E"), expr("{dq: 'b'}"));
+    assert_eq!(inferred(&scopes, outer, "I"), expr("'b'"));
+    assert_eq!(inferred(&scopes, outer, "E"), expr("Never"));
+    assert_eq!(nodety.validate(&scopes), []);
+}
+
+#[test]
+fn a_handled_effect_named_by_a_missing_input_is_insufficiently_inferred() {
+    let (nodety, _, inner) = nested_catches(false);
+
+    let errors = nodety.validate(&nodety.infer(&InferenceConfig::default()));
+
+    assert!(
+        errors.iter().any(|error| matches!(
+            error,
+            ValidationError { location: GraphLocation::Node { node_idx }, kind: ValidationErrorKind::InsufficientlyInferredTypes }
+                if *node_idx == inner.index()
+        )),
+        "{errors:?}"
+    );
+}
+
 /// A constructor whose concrete parameters rule the other one out gives none of its parameters a candidate.
 #[test]
 #[allow(clippy::mutable_key_type)] // GlobalParameterId is keyed by scope identity, see lib.rs.
