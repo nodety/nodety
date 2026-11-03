@@ -1,8 +1,9 @@
 use crate::{
     Type, TypeExpr,
     scope::ScopePointer,
-    type_expr::{ScopedTypeRef, TypeRef},
+    type_expr::{ScopedTypeRef, TypeRef, subtyping::SupertypeResult},
 };
+use std::borrow::Cow;
 
 impl<T: Type, R: TypeRef> TypeExpr<T, R> {
     /// Traverses this expression for all "top level" unions.
@@ -272,9 +273,20 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
 
         match (own.as_ref(), other.as_ref()) {
             // Unions first so that during candidate collection type type type params get visited by all union variants before being looked up.
-            (Self::Union(own_a, own_b), other) => {
-                own_a.traverse_parallel(other, &own_scope, &other_scope, infer_other, walker);
-                own_b.traverse_parallel(other, &own_scope, &other_scope, infer_other, walker);
+            (own @ Self::Union(_, _), other) => {
+                let mut own_arms = Vec::new();
+                own.traverse_union_non_context_sensitive(&mut |arm| own_arms.push(arm));
+                let (generic, concrete): (Vec<&Self>, Vec<&Self>) =
+                    own_arms.into_iter().partition(|arm| arm.contains_type_param());
+                // In `P | C`, the arms of `other` that `C` already covers are no candidates for `P`: `'a' | Unit`
+                // against `O | Unit` gives `O = 'a'`.
+                let uncovered = other.without_arms_covered_by(&concrete, &own_scope, &other_scope);
+                for arm in generic {
+                    arm.traverse_parallel(&uncovered, &own_scope, &other_scope, infer_other, walker);
+                }
+                for arm in concrete {
+                    arm.traverse_parallel(other, &own_scope, &other_scope, infer_other, walker);
+                }
             }
 
             (own, Self::Union(other_a, other_b)) => {
@@ -395,6 +407,20 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                 if !own_inner.supertype_of(other_inner) {
                     return;
                 }
+                // A parameter that rules `other` out, like the key of `Dq<'dns', R>` against `Dq<'dnf', X>`: none of the
+                // other parameters is a candidate then.
+                let rules_out = |(key, own_param): &(String, Self)| {
+                    other_params.get(key).is_some_and(|other_param| {
+                        !own_param.contains_type_param()
+                            && matches!(
+                                own_param.supertype_of(other_param, &own_scope, &other_scope),
+                                SupertypeResult::Unrelated(_)
+                            )
+                    })
+                };
+                if own_params.iter().any(rules_out) {
+                    return;
+                }
                 // Traverse over all common params
                 for (key, own_param) in own_params {
                     if let Some(other_param) = other_params.get(key) {
@@ -499,5 +525,48 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
             (Self::NodeSignature(_), Self::Type(_)) => (),
             (Self::NodeSignature(_), Self::Constructor { .. }) => (),
         }
+    }
+}
+
+impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
+    /// `self` without the top level union arms that one of `covering` (in `covering_scope`) is a supertype of. `Never`
+    /// if all of them are covered.
+    fn without_arms_covered_by<'a>(
+        &'a self,
+        covering: &[&Self],
+        covering_scope: &ScopePointer<T>,
+        scope: &ScopePointer<T>,
+    ) -> Cow<'a, Self> {
+        if covering.is_empty() {
+            return Cow::Borrowed(self);
+        }
+        let mut arms = Vec::new();
+        let mut covered_any = false;
+        self.traverse_union(scope, &mut |arm, arm_scope| {
+            if covering.iter().any(|cover| cover.supertype_of(arm, covering_scope, arm_scope).is_supertype()) {
+                covered_any = true;
+            } else {
+                arms.push(TypeExpr::scope_portal(arm.clone(), ScopePointer::clone(arm_scope)));
+            }
+        });
+        if !covered_any {
+            return Cow::Borrowed(self);
+        }
+        Cow::Owned(TypeExpr::from_unions(arms))
+    }
+
+    /// `self` with every type parameter replaced by `Any`: the shape it matches whatever the parameters are.
+    pub(crate) fn with_params_as_any(mut self) -> Self {
+        let scope = ScopePointer::new_root();
+        self.traverse_mut(
+            &scope,
+            &mut |expr, _, _| {
+                if expr.as_param().is_some() {
+                    *expr = TypeExpr::Any;
+                }
+            },
+            false,
+        );
+        self
     }
 }

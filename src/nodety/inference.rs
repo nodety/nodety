@@ -482,53 +482,80 @@ impl<T: Type> Nodety<T> {
             }
         }
 
-        // The effects of children that their parent doesn't handle become effects of the parent.
+        // The effects of children that their parent doesn't handle become effects of the parent. Those it handles infer
+        // the parameters of its `handles`: the rows `R` of a handled `Dq<'k', R>` are those its children throw.
         for (node_idx, node) in self.program.node_references() {
             let Some(parent_idx) = node.parent else { continue };
             let parent = &self.program[parent_idx];
-            let effects = node.signature.effects.clone().into_scoped();
-            let parent_effects = parent.signature.effects.clone().into_scoped();
-            if !effects.contains_type_param() && !parent_effects.contains_type_param() {
-                continue;
-            }
             let (Some(scope), Some(parent_scope)) = (scopes.get(&node_idx), scopes.get(&parent_idx)) else { continue };
-            let (source, source_scope) =
-                unhandled_effects(effects, scope, parent.signature.handles.clone().into_scoped(), parent_scope);
-            flows.push(FlowWithMetadata {
-                flow: Flow {
-                    source,
-                    target: parent_effects,
-                    source_scope,
-                    target_scope: ScopePointer::clone(parent_scope),
-                },
-                source_location: FlowSourceLocation::Effects(node_idx),
-                target_location: FlowTargetLocation::Effects(parent_idx),
-            });
+            let effects = node.signature.effects.clone().into_scoped();
+            let handles = parent.signature.handles.clone().into_scoped();
+            let mut effect_flow = |source: (ScopedTypeExpr<T>, ScopePointer<T>), target: ScopedTypeExpr<T>| {
+                flows.push(FlowWithMetadata {
+                    flow: Flow {
+                        source: source.0,
+                        target,
+                        source_scope: source.1,
+                        target_scope: ScopePointer::clone(parent_scope),
+                    },
+                    source_location: FlowSourceLocation::Effects(node_idx),
+                    target_location: FlowTargetLocation::Effects(parent_idx),
+                })
+            };
+            let mut handled_arms = Vec::new();
+            handles.traverse_union_non_context_sensitive(&mut |arm| handled_arms.push(arm.clone()));
+            for handled in handled_arms.into_iter().filter(ScopedTypeExpr::contains_type_param) {
+                let shape = handled.clone().with_params_as_any();
+                effect_flow(effect_arms(effects.clone(), scope, shape, parent_scope, Arms::Matching), handled);
+            }
+            // By the shape of `handles`: what a handled `Dq<'k', R>` handles doesn't wait for `R`, which may never get
+            // inferred (if no child has a `Dq<'k', _>`), and the parent's effects would then only get the bound of its
+            // own parent.
+            let parent_effects = parent.signature.effects.clone().into_scoped();
+            if effects.contains_type_param() || parent_effects.contains_type_param() {
+                let handled_shape = handles.with_params_as_any();
+                effect_flow(
+                    effect_arms(effects, scope, handled_shape, parent_scope, Arms::NotMatching),
+                    parent_effects,
+                );
+            }
         }
         flows
     }
 }
 
-/// The arms of `effects` that are not subtypes of `handles`: `X extends handles ? Never : X` with `X = effects`, which
-/// distributes over the arms of `effects` once they are known.
-fn unhandled_effects<T: Type>(
+/// Which arms of the effects [effect_arms] keeps.
+enum Arms {
+    /// The subtypes of the pattern.
+    Matching,
+    NotMatching,
+}
+
+/// The arms of `effects` that are (or are not) subtypes of `pattern`: `X extends pattern ? X : Never` (or
+/// `? Never : X`) with `X = effects`, which distributes over the arms of `effects` once they are known.
+fn effect_arms<T: Type>(
     effects: ScopedTypeExpr<T>,
     scope: &ScopePointer<T>,
-    handles: ScopedTypeExpr<T>,
-    handles_scope: &ScopePointer<T>,
+    pattern: ScopedTypeExpr<T>,
+    pattern_scope: &ScopePointer<T>,
+    keep: Arms,
 ) -> (ScopedTypeExpr<T>, ScopePointer<T>) {
-    if handles == TypeExpr::Never {
+    if let (TypeExpr::Never, Arms::NotMatching) = (&pattern, &keep) {
         return (effects, ScopePointer::clone(scope));
     }
     let effects_param = LocalParamID(0);
     let mut exclusion_scope = Scope::new_child(scope);
     exclusion_scope.define(effects_param, TypeParameter::default());
     exclusion_scope.infer(&effects_param, effects, ScopePointer::clone(scope)).expect("the parameter was just defined");
+    let (t_then, t_else) = match keep {
+        Arms::Matching => (TypeExpr::param(effects_param), TypeExpr::Never),
+        Arms::NotMatching => (TypeExpr::Never, TypeExpr::param(effects_param)),
+    };
     let exclusion = Conditional {
         t_test: TypeExpr::param(effects_param),
-        t_test_bound: TypeExpr::scope_portal(handles, ScopePointer::clone(handles_scope)),
-        t_then: TypeExpr::Never,
-        t_else: TypeExpr::param(effects_param),
+        t_test_bound: TypeExpr::scope_portal(pattern, ScopePointer::clone(pattern_scope)),
+        t_then,
+        t_else,
         infer: BTreeSet::new(),
     };
     (exclusion.into(), ScopePointer::new(exclusion_scope))
