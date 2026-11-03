@@ -82,6 +82,7 @@
 //! <T extends Comparable = Unit>  // bound and default
 //! <#0, #1>                      // numeric ids (for non-identifier params)
 //! <!T>                          // This instance of T will not be used for inference
+//! <rigid N extends Integer>     // never inferred, see TypeParameter::rigid
 //! ```
 //!
 //! ## Demo Type System (Reference)
@@ -98,6 +99,8 @@
 //! | `SI(scale, s, m, kg, a, k, mol, cd)` | SI units |
 //! | `AnySI` | Any SI unit |
 //! | `A * B`, `A / B` | SI multiplication/division |
+//! | `3`, `-1` | Integer literals, subtypes of `Integer` |
+//! | `A + B`, `A - B` | Integer addition/subtraction, linear over rigid parameters |
 //! | `Nondeterministic`, `Fallible` | Effects |
 //!
 //! ## Identifiers and Strings

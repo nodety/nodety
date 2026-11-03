@@ -7,6 +7,7 @@ use std::{
     borrow::Cow,
     cell::RefCell,
     collections::HashMap,
+    fmt::{self, Debug},
     hash::{DefaultHasher, Hash, Hasher},
     ops::Deref,
     rc::Rc,
@@ -52,6 +53,8 @@ impl From<&str> for LocalParamID {
 pub enum ScopeError {
     ParameterNotFound,
     ParameterAlreadyInferred,
+    /// Rigid parameters never get inferred, see [TypeParameter::rigid].
+    ParameterRigid,
 }
 
 #[derive(Debug, Clone)]
@@ -83,8 +86,16 @@ impl<T: Type> Hash for GlobalParameterId<T> {
 /// **Equality is by pointer identity**, not structural comparison.
 /// Two `ScopePointer`s are equal only if they point to the exact same
 /// allocation.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ScopePointer<T: Type>(Rc<Scope<T>>);
+
+/// Only the address: scopes can reach each other in a cycle (a parameter inferred to a type of a child scope), so
+/// following the pointer would never end. Format the [`Scope`] itself to see its parameters.
+impl<T: Type> Debug for ScopePointer<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ScopePointer({:p})", Rc::as_ptr(&self.0))
+    }
+}
 
 impl<T: Type> Deref for ScopePointer<T> {
     type Target = Scope<T>;
@@ -122,6 +133,11 @@ impl<T: Type> ScopePointer<T> {
 
     pub fn new_root() -> Self {
         Self(Rc::new(Scope::new_root()))
+    }
+
+    /// Identifies the scope as [PartialEq] does.
+    pub(crate) fn address(&self) -> usize {
+        Rc::as_ptr(&self.0) as usize
     }
 }
 
@@ -165,6 +181,16 @@ impl<T: Type> RegisteredTypeVar<T> {
 
     pub fn is_inferred(&self) -> bool {
         self.inferred.borrow().is_some()
+    }
+
+    /// See [TypeParameter::rigid].
+    pub fn is_rigid(&self) -> bool {
+        self.parameter.rigid
+    }
+
+    /// Whether inference still waits for this parameter: neither inferred nor rigid.
+    pub fn is_uninferred(&self) -> bool {
+        !self.is_rigid() && !self.is_inferred()
     }
 }
 
@@ -279,6 +305,9 @@ impl<T: Type> Scope<T> {
         let Some(registered) = self.parameters.get(ident) else {
             return Err(ScopeError::ParameterNotFound);
         };
+        if registered.is_rigid() {
+            return Err(ScopeError::ParameterRigid);
+        }
         let mut inferred_ref = registered.inferred.borrow_mut();
         if inferred_ref.is_some() {
             return Err(ScopeError::ParameterAlreadyInferred);
@@ -288,10 +317,11 @@ impl<T: Type> Scope<T> {
     }
 
     /// # Returns
-    /// An iterator over all variable identifiers that are not yet inferred.
+    /// An iterator over all variable identifiers that are not yet inferred. Rigid parameters are never inferred and
+    /// are left out.
     pub fn uninferred(&self) -> impl Iterator<Item = (LocalParamID, TypeParameter<T, ScopedTypeRef<T>>)> {
         self.parameters.iter().filter_map(|(ident, param)| {
-            if param.inferred.borrow().is_none() { Some((*ident, param.parameter.clone())) } else { None }
+            if param.is_uninferred() { Some((*ident, param.parameter.clone())) } else { None }
         })
     }
 

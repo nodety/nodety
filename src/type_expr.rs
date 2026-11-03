@@ -41,11 +41,13 @@ pub mod keyof;
 pub mod mapped;
 pub mod node_signature;
 pub mod normalization;
+pub mod rigid;
 pub mod subtyping;
 pub mod to_type_expr;
 pub mod traversal;
 
 pub use conversions::HasScopePortals;
+pub use rigid::{OperandRef, RigidRef, RigidTypeExpr};
 pub use to_type_expr::ToTypeExpr;
 
 /// Type expression—the core type representation in nodety.
@@ -316,10 +318,10 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 let (intersection, scope) = TypeExpr::intersection(a, b, scope, scope)?;
                 intersection.is_never(&scope)
             }
-            // Unknown as long as the operands aren't fully resolved.
+            // Unknown as long as the operands aren't fully resolved. A rigid parameter is its bound.
             Self::Operation { a, b, operator } => {
-                let a = a.normalize_concrete(scope)?;
-                let b = b.normalize_concrete(scope)?;
+                let a = a.normalize_concrete_widened(scope)?;
+                let b = b.normalize_concrete_widened(scope)?;
                 T::operation(&a, operator, &b).is_never(scope)
             }
             Self::NodeSignature(_) => Some(false),
@@ -342,7 +344,8 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                     if boundary.is_never(&boundary_scope).unwrap_or(false) {
                         return Some(true);
                     }
-                    None
+                    // A rigid parameter is never inferred, so whether it is `Never` doesn't change any more.
+                    registered.is_rigid().then_some(false)
                 }
                 ScopedRefView::ScopedExpr { expr, scope } => expr.is_never(scope),
             },
@@ -372,8 +375,11 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 let (intersection, scope) = TypeExpr::intersection(a, b, scope, scope)?;
                 intersection.is_any(&scope)
             }
-            // Unknown as long as the operands aren't fully resolved.
+            // Unknown as long as the operands aren't fully resolved. An operation over rigid parameters is no `Any`.
             Self::Operation { a, b, operator } => {
+                if self.rigid_parent_form(scope).is_some() {
+                    return Some(false);
+                }
                 let a = a.normalize_concrete(scope)?;
                 let b = b.normalize_concrete(scope)?;
                 T::operation(&a, operator, &b).is_any(scope)
@@ -392,7 +398,11 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
 
             Self::Ref(r) => match r.view() {
                 ScopedRefView::Param(ParamRef { param_id, .. }) => {
-                    let (inferred, inferred_scope) = scope.lookup_inferred(param_id)?;
+                    let (registered, _) = scope.lookup(param_id)?;
+                    if registered.is_rigid() {
+                        return Some(false);
+                    }
+                    let (inferred, inferred_scope) = registered.inferred()?;
                     inferred.is_any(&inferred_scope)
                 }
                 ScopedRefView::ScopedExpr { expr, scope } => expr.is_any(scope),
@@ -480,6 +490,7 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                     ignore_excluded: true,
                 },
             ],
+            respect_variance: false,
             ..Default::default()
         };
         infer(flows, &config);
@@ -610,7 +621,8 @@ impl<T: Type> ScopedTypeExpr<T> {
     pub fn contains_uninferred(&self, scope: &ScopePointer<T>) -> bool {
         let mut contains_uninferred = false;
         self.visit_referenced_params(scope, &mut |id| {
-            contains_uninferred |= id.is_none_or(|id| !id.scope.is_inferred(&id.local_id));
+            contains_uninferred |=
+                id.is_none_or(|id| id.scope.lookup(&id.local_id).is_none_or(|(var, _)| var.is_uninferred()));
         });
         contains_uninferred
     }

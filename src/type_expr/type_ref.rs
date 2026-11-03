@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "tsify")]
 use tsify::Tsify;
 
-mod private {
+pub(crate) mod private {
     pub trait Sealed {}
 }
 
@@ -66,7 +66,7 @@ pub enum ScopedRefView<'a, T: Type> {
 ///
 /// A `TypeExpr<T, NoRef>` provably contains neither type parameters nor scope portals, so it can
 /// be understood without a [Scope](crate::scope::Scope).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[cfg_attr(feature = "tsify", derive(Tsify))]

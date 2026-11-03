@@ -258,6 +258,7 @@ impl<T: Type, R: TypeRef> TypeParameter<T, R> {
         Ok(TypeParameter {
             bound: self.bound.map(|bound| bound.try_map_refs_mut(mapper)).transpose()?,
             default: self.default.map(|default| default.try_map_refs_mut(mapper)).transpose()?,
+            rigid: self.rigid,
         })
     }
 }

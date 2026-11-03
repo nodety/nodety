@@ -78,7 +78,7 @@ fn test_scope_infer_parameter_not_found_error() {
 #[test]
 fn test_scope_infer_defaults_with_default() {
     let mut scope = Scope::<DemoType>::new_root();
-    scope.define(LocalParamID(0), TypeParameter { bound: None, default: Some(expr("Integer")) });
+    scope.define(LocalParamID(0), TypeParameter { bound: None, default: Some(expr("Integer")), rigid: false });
     let scope_ptr = ScopePointer::new(scope);
     scope_ptr.infer_bounds();
 
@@ -89,7 +89,7 @@ fn test_scope_infer_defaults_with_default() {
 #[test]
 fn test_scope_infer_defaults_with_bound_no_default() {
     let mut scope = Scope::<DemoType>::new_root();
-    scope.define(LocalParamID(0), TypeParameter { bound: Some(expr("Comparable")), default: None });
+    scope.define(LocalParamID(0), TypeParameter { bound: Some(expr("Comparable")), default: None, rigid: false });
     let scope_ptr = ScopePointer::new(scope);
     scope_ptr.infer_bounds();
 
@@ -156,4 +156,19 @@ fn test_local_param_id_from_multichar_str() {
 
     let id3 = LocalParamID::from("world");
     assert_ne!(id1, id3);
+}
+
+/// A parameter inferred to a type of a child scope makes the scopes reach each other in a cycle.
+#[test]
+fn test_debug_of_scopes_in_a_cycle_ends() {
+    let mut parent = Scope::<DemoType>::new_root();
+    parent.define(LocalParamID::from("A"), TypeParameter::default());
+    let parent = ScopePointer::new(parent);
+    let mut child = Scope::new_child(&parent);
+    child.define(LocalParamID::from("B"), TypeParameter::default());
+    let child = ScopePointer::new(child);
+    parent.infer(&"A".into(), expr("B"), ScopePointer::clone(&child)).unwrap();
+
+    assert!(format!("{:?}", *child).contains("ScopePointer(0x"));
+    assert!(format!("{parent:?}").starts_with("ScopePointer(0x"));
 }

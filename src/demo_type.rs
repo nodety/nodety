@@ -3,12 +3,13 @@
 //! But it also serves as reference implementation of the Type trait.
 use crate::{
     r#type::Type,
-    type_expr::{ConcreteTypeExpr, ConstructorParams, TypeExpr, TypeRef},
+    type_expr::{ConcreteTypeExpr, ConstructorParams, OperandRef, TypeExpr, TypeRef},
 };
 #[cfg(feature = "json-schema")]
 use schemars::JsonSchema;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 #[cfg(feature = "tsify")]
 use tsify::Tsify;
 
@@ -58,6 +59,8 @@ impl SIUnit {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DemoType {
     Integer,
+    /// An integer literal like `3`, a subtype of `Integer`.
+    IntegerLiteral(i64),
     Float,
     /// Some if representing a string literal like 'hello', None if representing the string type.
     String(Option<String>),
@@ -83,6 +86,8 @@ pub enum DemoType {
 pub enum DemoOperator {
     Multiplication,
     Division,
+    Addition,
+    Subtraction,
 }
 
 impl Type for DemoType {
@@ -91,6 +96,7 @@ impl Type for DemoType {
     fn common_supertype(&self, other: &Self) -> Option<Self> {
         match (self, other) {
             (Self::String(_), Self::String(_)) => Some(Self::String(None)),
+            (Self::Integer | Self::IntegerLiteral(_), Self::Integer | Self::IntegerLiteral(_)) => Some(Self::Integer),
             _ => None,
         }
     }
@@ -101,7 +107,8 @@ impl Type for DemoType {
             (Self::Unit, Self::Unit) => true,
 
             // Numbers
-            (Self::Integer, Self::Integer) => true,
+            (Self::Integer, Self::Integer | Self::IntegerLiteral(_)) => true,
+            (Self::IntegerLiteral(a), Self::IntegerLiteral(b)) => a == b,
             (Self::Float, Self::Float) => true,
 
             // Strings
@@ -115,7 +122,7 @@ impl Type for DemoType {
             (Self::Array, Self::Array) => true,
 
             // Interfaces
-            (Self::Comparable, Self::Comparable | Self::Integer | Self::Float) => true,
+            (Self::Comparable, Self::Comparable | Self::Integer | Self::IntegerLiteral(_) | Self::Float) => true,
             (Self::Countable, Self::Countable | Self::Array | Self::Record) => true,
             (Self::Sortable, Self::Sortable) => true,
 
@@ -130,11 +137,11 @@ impl Type for DemoType {
         }
     }
 
-    fn operation(
-        a: &ConcreteTypeExpr<Self>,
+    fn operation<R: OperandRef<Self>>(
+        a: &TypeExpr<Self, R>,
         operator: &DemoOperator,
-        b: &ConcreteTypeExpr<Self>,
-    ) -> ConcreteTypeExpr<Self> {
+        b: &TypeExpr<Self, R>,
+    ) -> TypeExpr<Self, R> {
         match (a, operator, b) {
             (
                 TypeExpr::Type(Self::SI(a, a_scale)),
@@ -143,6 +150,13 @@ impl Type for DemoType {
             ) => TypeExpr::Type(Self::SI(a.multiply(b), a_scale * b_scale)),
             (TypeExpr::Type(Self::SI(a, a_scale)), DemoOperator::Division, TypeExpr::Type(Self::SI(b, b_scale))) => {
                 TypeExpr::Type(Self::SI(a.divide(b), a_scale / b_scale))
+            }
+            (a, DemoOperator::Addition | DemoOperator::Subtraction, b) => {
+                let sign = if *operator == DemoOperator::Addition { 1 } else { -1 };
+                match (Linear::of(a), Linear::of(b)) {
+                    (Some(a), Some(b)) => a.combine(sign, b).map_or(TypeExpr::Type(Self::Integer), Linear::canonical),
+                    _ => TypeExpr::Never,
+                }
             }
             _ => TypeExpr::Never,
         }
@@ -218,5 +232,73 @@ impl Type for DemoType {
 
     fn optional_in_constructor(&self) -> bool {
         matches!(self, Self::Unit)
+    }
+}
+
+/// `Σ coefficient · parameter + constant`, the reference for computing with rigid parameters: [DemoType]'s integer
+/// addition and subtraction keep operations over rigid parameters in this form.
+struct Linear<R> {
+    /// No coefficient is 0.
+    terms: BTreeMap<R, i64>,
+    /// `None` for a non literal `Integer`, which absorbs everything.
+    constant: Option<i64>,
+}
+
+impl<R: OperandRef<DemoType>> Linear<R> {
+    fn of(expr: &TypeExpr<DemoType, R>) -> Option<Self> {
+        match expr {
+            TypeExpr::Type(DemoType::IntegerLiteral(literal)) => {
+                Some(Self { terms: BTreeMap::new(), constant: Some(*literal) })
+            }
+            TypeExpr::Type(DemoType::Integer) => Some(Self { terms: BTreeMap::new(), constant: None }),
+            TypeExpr::Ref(r) => Some(Self { terms: [(r.clone(), 1)].into(), constant: Some(0) }),
+            TypeExpr::Operation { a, operator: operator @ (DemoOperator::Addition | DemoOperator::Subtraction), b } => {
+                let sign = if *operator == DemoOperator::Addition { 1 } else { -1 };
+                Self::of(a)?.combine(sign, Self::of(b)?)
+            }
+            _ => None,
+        }
+    }
+
+    /// `self + sign · other`. `None` on an overflow.
+    fn combine(mut self, sign: i64, other: Self) -> Option<Self> {
+        for (term, coefficient) in other.terms {
+            let sum = self.terms.get(&term).copied().unwrap_or(0).checked_add(coefficient.checked_mul(sign)?)?;
+            self.terms.insert(term, sum);
+        }
+        self.terms.retain(|_, coefficient| *coefficient != 0);
+        self.constant = match (self.constant, other.constant) {
+            (Some(a), Some(b)) => Some(a.checked_add(b.checked_mul(sign)?)?),
+            _ => None,
+        };
+        Some(self)
+    }
+
+    /// The positive terms in order, then the negative ones, then the constant: `N + N - M + 1`.
+    fn canonical(self) -> TypeExpr<DemoType, R> {
+        let constant = match self.constant {
+            None => return TypeExpr::Type(DemoType::Integer),
+            Some(constant) => constant,
+        };
+        let literal = |literal: i64| TypeExpr::Type(DemoType::IntegerLiteral(literal));
+        let operation = |a, operator, b| TypeExpr::Operation { a: Box::new(a), operator, b: Box::new(b) };
+        let mut positive =
+            self.terms.iter().filter(|(_, c)| **c > 0).flat_map(|(r, c)| (0..*c).map(move |_| r.clone()));
+        let mut expr = match positive.next() {
+            Some(first) => {
+                positive.fold(TypeExpr::Ref(first), |e, r| operation(e, DemoOperator::Addition, TypeExpr::Ref(r)))
+            }
+            None => literal(constant),
+        };
+        for (r, coefficient) in self.terms.iter().filter(|(_, c)| **c < 0) {
+            for _ in 0..-coefficient {
+                expr = operation(expr, DemoOperator::Subtraction, TypeExpr::Ref(r.clone()));
+            }
+        }
+        match self.terms.values().any(|c| *c > 0) {
+            true if constant > 0 => operation(expr, DemoOperator::Addition, literal(constant)),
+            true if constant < 0 => operation(expr, DemoOperator::Subtraction, literal(-constant)),
+            _ => expr,
+        }
     }
 }
