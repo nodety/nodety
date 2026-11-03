@@ -114,6 +114,10 @@ pub enum TypeExpr<T: Type, R: TypeRef = ParamRef> {
     ///
     /// A mutable value can be handed out through it without being written to, e.g. as a parameter that the
     /// receiver can only read. Evaluated as soon as `T` is known, see [TypeExpr::readonly].
+    ///
+    /// `readonly Any` is `Any`. Nodety never narrows, and `Any` is no subtype of a mutable type. But a type checker
+    /// that narrows `Any` (e.g. by a runtime type test) must narrow to read-only counterparts, because it can't know
+    /// whether the value behind `Any` may be written.
     Readonly(Box<TypeExpr<T, R>>),
 
     /// Determines the type that `expr` returns when indexed with the type `index`.
@@ -606,44 +610,19 @@ impl<T: Type> ScopedTypeExpr<T> {
 
     pub fn contains_uninferred(&self, scope: &ScopePointer<T>) -> bool {
         let mut contains_uninferred = false;
-        self.traverse(
-            scope,
-            &mut |expr, traverse_scope, _is_tl_union| {
-                let Some(ParamRef { param_id, .. }) = expr.as_param() else {
-                    return;
-                };
-                contains_uninferred |= traverse_scope.lookup_inferred(param_id).is_none();
-            },
-            false,
-        );
+        self.visit_referenced_params(scope, &mut |id| {
+            contains_uninferred |= id.is_none_or(|id| !id.scope.is_inferred(&id.local_id));
+        });
         contains_uninferred
     }
 
-    /// Tests if the expression references the needle anywhere in its structure.
+    /// Tests if the expression references the needle anywhere in its structure, also through the inferred types of
+    /// the parameters it references (see [Self::referenced_params]).
     /// # Parameters
     /// - `scope`: The scope of self
     /// - `needle`: The parameter to look for
     pub fn references(&self, needle: &HashSet<GlobalParameterId<T>>, scope: &ScopePointer<T>) -> bool {
-        // let Some(initial_depth) = state.locate_parameter(parameter, ctx) else { return false };
-        let mut contains = false;
-
-        self.traverse(
-            scope,
-            &mut |expr, scope, _is_tl_union| {
-                let Some(ParamRef { param_id, .. }) = expr.as_param() else {
-                    return;
-                };
-                let Some(var_scope) = scope.lookup_scope(param_id) else {
-                    return;
-                };
-                let global_id = GlobalParameterId { scope: var_scope, local_id: *param_id };
-                if needle.contains(&global_id) {
-                    contains = true;
-                }
-            },
-            false,
-        );
-        contains
+        self.referenced_params(scope).iter().any(|id| needle.contains(id))
     }
 
     /// Most type expressions can't widen. They only get narrower when parameters get inferred.

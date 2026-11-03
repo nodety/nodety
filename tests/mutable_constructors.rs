@@ -61,6 +61,10 @@ fn bounded_parameter_of_mutable_constructor() {
     assert_supertype(parent, "MutableArray<Integer>");
     assert_supertype(parent, "MutableArray<Integer | String>");
     assert_unrelated(parent, "MutableArray<String>");
+
+    // Stores `Integer`, reads as `Any`, like the array parameter of `push`.
+    assert_supertype("MutableArray<Integer..Any>", "MutableArray<Integer>");
+    assert_unrelated("MutableArray<Integer..Any>", "MutableArray<String>");
 }
 
 #[test]

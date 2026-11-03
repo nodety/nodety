@@ -1,8 +1,9 @@
 use crate::{
     Type, TypeExpr,
-    scope::ScopePointer,
+    scope::{GlobalParameterId, ScopePointer},
     type_expr::{ScopedTypeRef, TypeRef, subtyping::leaf_supertype_of},
 };
+use std::collections::HashSet;
 
 /// How two types visited by [TypeExpr::traverse_parallel] have to relate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +68,50 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
             },
             true,
         );
+    }
+
+    /// The type parameters `self` references, directly or through the inferred types of the parameters it
+    /// references, each once. Parameters that can't be looked up are left out.
+    pub fn referenced_params(&self, scope: &ScopePointer<T>) -> Vec<GlobalParameterId<T>> {
+        let mut referenced = Vec::new();
+        self.visit_referenced_params(scope, &mut |id| referenced.extend(id.cloned()));
+        referenced
+    }
+
+    /// Calls `visit` for every type parameter `self` references, directly or through the inferred types of the
+    /// parameters it references, with `None` for each reference that can't be looked up.
+    ///
+    /// Each parameter is visited and each inferred type walked once, so nested inferred types
+    /// (`T2 = {a: T1, b: T1}`, `T3 = {a: T2, b: T2}`, ...) take linear instead of exponential time.
+    pub(crate) fn visit_referenced_params(
+        &self,
+        scope: &ScopePointer<T>,
+        visit: &mut impl FnMut(Option<&GlobalParameterId<T>>),
+    ) {
+        let mut visited = HashSet::new();
+        let mut pending = vec![(self.clone(), ScopePointer::clone(scope))];
+        while let Some((mut expr, expr_scope)) = pending.pop() {
+            // `traverse_mut` doesn't follow inferred types, so that each one gets walked only once here.
+            expr.traverse_mut(
+                &expr_scope,
+                &mut |expr, traversal_scope, _is_tl_union| {
+                    let Some(param) = expr.as_param() else { return };
+                    let Some(param_scope) = traversal_scope.lookup_scope(&param.param_id) else {
+                        visit(None);
+                        return;
+                    };
+                    let id = GlobalParameterId { scope: param_scope, local_id: param.param_id };
+                    if !visited.insert(id.clone()) {
+                        return;
+                    }
+                    if let Some(inferred) = id.scope.lookup_inferred(&id.local_id) {
+                        pending.push(inferred);
+                    }
+                    visit(Some(&id));
+                },
+                false,
+            );
+        }
     }
 
     /// Mutable version of `traverse` with the exception, that the inferred

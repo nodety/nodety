@@ -234,7 +234,8 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
     ///   [optional](Type::optional_in_constructor): writing them through such a view would break other references.
     /// - A mutable type is a subtype of everything its read-only counterpart is a subtype of, and only mutable
     ///   types are subtypes of a mutable type. [Type::supertype_of] doesn't have to (but may) repeat that.
-    /// - [TypeExpr::Readonly] replaces it by its counterpart.
+    /// - [TypeExpr::Readonly] replaces it by its counterpart. A type checker that narrows [TypeExpr::Any] must narrow
+    ///   to read-only counterparts, because it can't know whether the value may be written.
     ///
     /// The counterpart must not be mutable itself.
     fn readonly_counterpart(&self) -> Option<Self> {
