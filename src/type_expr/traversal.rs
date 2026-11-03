@@ -645,6 +645,23 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
         Cow::Owned(TypeExpr::from_unions(arms))
     }
 
+    /// `self` with every type parameter replaced by its declared bound in `scope` (or `Any` if it has none): the shape
+    /// it matches whatever the parameters get inferred to. The parameters inside a bound are replaced by `Any`.
+    pub(crate) fn with_params_as_bounds(mut self, scope: &ScopePointer<T>) -> Self {
+        let root = ScopePointer::new_root();
+        self.traverse_mut(
+            &root,
+            &mut |expr, _, _| {
+                if let Some(param) = expr.as_param() {
+                    let bound = scope.lookup(&param.param_id).and_then(|(var, _)| var.parameter().bound.clone());
+                    *expr = bound.map_or(TypeExpr::Any, Self::with_params_as_any);
+                }
+            },
+            false,
+        );
+        self
+    }
+
     /// `self` with every type parameter replaced by `Any`: the shape it matches whatever the parameters are.
     pub(crate) fn with_params_as_any(mut self) -> Self {
         let scope = ScopePointer::new_root();

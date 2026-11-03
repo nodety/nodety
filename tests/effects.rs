@@ -309,6 +309,50 @@ fn a_handled_parameter_takes_every_effect() {
     assert_eq!(nodety.validate(&scopes), []);
 }
 
+/// A bounded parameter as the whole handled effect handles only the effects within its bound: the others are effects
+/// of the parent.
+#[test]
+fn a_bounded_handled_parameter_takes_the_effects_within_its_bound() {
+    let mut nodety = Nodety::<DemoType>::new();
+    let group = nodety
+        .add_node(sig_u(
+            "<N extends Nondeterministic, Q extends Fallible>() -> ((Integer) -> (Integer) effects <N> <Q>) \
+             effects <N> handles <Q>",
+        ))
+        .unwrap();
+    nodety.add_node(Node::new_child(sig_u("() -> () effects <Nondeterministic>"), group)).unwrap();
+    nodety.add_node(Node::new_child(sig_u("() -> () effects <Fallible>"), group)).unwrap();
+
+    let scopes = nodety.infer(&InferenceConfig::default());
+
+    assert_eq!(inferred(&scopes, group, "N"), expr("Nondeterministic"));
+    assert_eq!(inferred(&scopes, group, "Q"), expr("Fallible"));
+    assert_eq!(nodety.validate(&scopes), []);
+}
+
+/// Without a child effect within its bound, a bounded handled parameter handles nothing.
+#[test]
+fn a_bounded_handled_parameter_without_matching_effects_handles_nothing() {
+    let mut nodety = Nodety::<DemoType>::new();
+    let root = nodety.add_node(sig_u("() -> ()")).unwrap();
+    let group = nodety
+        .add_node(Node::new_child(sig_u("<N, Q extends Fallible>() -> () effects <N> handles <Q>"), root))
+        .unwrap();
+    nodety.add_node(Node::new_child(sig_u("() -> () effects <Nondeterministic>"), group)).unwrap();
+
+    let scopes = nodety.infer(&InferenceConfig::default());
+
+    assert_eq!(inferred(&scopes, group, "N"), expr("Nondeterministic"));
+    assert_eq!(inferred(&scopes, group, "Q"), expr("Never"));
+    let errors = nodety.validate(&scopes);
+    assert_matches!(
+        &errors[..],
+        [ValidationError { location: GraphLocation::Node { node_idx }, kind: ValidationErrorKind::UnhandledEffects(_) }]
+            if *node_idx == group.index(),
+        "{errors:?}"
+    );
+}
+
 /// A constructor whose concrete parameters rule the other one out gives none of its parameters a candidate.
 #[test]
 #[allow(clippy::mutable_key_type)] // GlobalParameterId is keyed by scope identity, see lib.rs.

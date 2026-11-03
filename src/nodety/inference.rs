@@ -539,15 +539,15 @@ impl<T: Type> Nodety<T> {
             let mut handled_arms = Vec::new();
             handles.traverse_union_non_context_sensitive(&mut |arm| handled_arms.push(arm.clone()));
             for handled in handled_arms.into_iter().filter(ScopedTypeExpr::contains_type_param) {
-                let shape = handled.clone().with_params_as_any();
+                let shape = handled.clone().with_params_as_bounds(parent_scope);
                 effect_flow(effect_arms(effects.clone(), scope, shape, parent_scope, Arms::Matching), handled);
             }
             // By the shape of `handles`: what a handled `Dq<'k', R>` handles doesn't wait for `R`, which may never get
             // inferred (if no child has a `Dq<'k', _>`), and the parent's effects would then only get the bound of its
-            // own parent.
+            // own parent. A handled `Q extends Fallible` handles only what is `Fallible`.
             let parent_effects = parent.signature.effects.clone().into_scoped();
             if effects.contains_type_param() || parent_effects.contains_type_param() {
-                let handled_shape = handles.with_params_as_any();
+                let handled_shape = handles.with_params_as_bounds(parent_scope);
                 effect_flow(
                     effect_arms(effects, scope, handled_shape, parent_scope, Arms::NotMatching),
                     parent_effects,
