@@ -173,36 +173,18 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
             // Candidate collection, in the order of the flows: picking one parameter changes the candidates of the
             // next ones, so hash order would make the result random.
             let mut all_candidates: Vec<(GlobalParameterId<T>, Vec<Candidate<T>>)> = Vec::new();
+            // The flows each parameter's candidates come from, by index into `flows`.
+            let mut flows_of: Vec<Vec<usize>> = Vec::new();
             let mut index_of = HashMap::new();
-            for flow in &flows {
-                let candidates = if step.direction == InferenceDirection::Forward {
-                    flow.target.collect_candidates_in_order(
-                        &flow.source,
-                        &flow.target_scope,
-                        &flow.source_scope,
-                        step.infer_candidates,
-                        step.ignore_excluded,
-                    )
-                } else {
-                    flow.source.collect_candidates_in_order(
-                        &flow.target,
-                        &flow.source_scope,
-                        &flow.target_scope,
-                        step.infer_candidates,
-                        step.ignore_excluded,
-                    )
-                };
-                for (global_param_id, candidate) in candidates {
-                    if let Some(restrictions) = &config.restrictions
-                        && !restrictions.contains(&global_param_id)
-                    {
-                        continue;
-                    }
+            for (flow_idx, flow) in flows.iter().enumerate() {
+                for (global_param_id, candidate) in flow_candidates(flow, step, config) {
                     let index = *index_of.entry(global_param_id.clone()).or_insert_with(|| {
                         all_candidates.push((global_param_id, Vec::new()));
+                        flows_of.push(Vec::new());
                         all_candidates.len() - 1
                     });
                     all_candidates[index].1.extend(candidate);
+                    flows_of[index].push(flow_idx);
                 }
             }
             for (_, candidates) in &mut all_candidates {
@@ -215,14 +197,28 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
                 })
                 .collect();
             let mut progress = false;
+            // The parameters this pass inferred. Candidates that waited for one of them were collected before it got
+            // inferred, so they are stale (e.g. a union's covered arms couldn't be subtracted yet): they get collected
+            // again from their flows before their parameter is picked. Otherwise the result would depend on the order
+            // of the flows.
+            let mut inferred_in_pass: HashSet<GlobalParameterId<T>> = HashSet::new();
 
             // Candidate picking
-            for (global_id, mut candidates) in all_candidates {
+            for ((global_id, mut candidates), param_flows) in all_candidates.into_iter().zip(flows_of) {
                 let Some((registered_param, param_scope)) = global_id.scope.lookup(&global_id.local_id) else {
                     continue;
                 };
                 if registered_param.is_inferred() {
                     continue;
+                }
+                if awaited.get(&global_id).is_some_and(|ids| ids.iter().any(|id| inferred_in_pass.contains(id))) {
+                    candidates = param_flows
+                        .iter()
+                        .flat_map(|&flow_idx| flow_candidates(&flows[flow_idx], step, config))
+                        .filter(|(id, _)| *id == global_id)
+                        .flat_map(|(_, candidates)| candidates)
+                        .collect();
+                    Candidate::drop_union_branch_duplicates(&mut candidates);
                 }
 
                 candidates
@@ -258,6 +254,7 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
                 };
                 if param_scope.infer(&global_id.local_id, picked_candidate_type, picked_candidate_scope).is_ok() {
                     // println!("inferred {:?} = {:#?}", global_id.local_id, picked_candidate.t);
+                    inferred_in_pass.insert(global_id.clone());
                     if let Some(sa) = &mut stop_after {
                         sa.remove(&global_id);
                         if sa.is_empty() {
@@ -279,6 +276,36 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
             break_cycles = false;
         }
     }
+}
+
+/// The candidates `flow` gives in `step`, by parameter in the order they are found, without the parameters
+/// `config` restricts.
+fn flow_candidates<T: Type>(
+    flow: &Flow<T>,
+    step: &InferenceStep,
+    config: &InferenceConfig<T>,
+) -> Vec<(GlobalParameterId<T>, Vec<Candidate<T>>)> {
+    let mut candidates = if step.direction == InferenceDirection::Forward {
+        flow.target.collect_candidates_in_order(
+            &flow.source,
+            &flow.target_scope,
+            &flow.source_scope,
+            step.infer_candidates,
+            step.ignore_excluded,
+        )
+    } else {
+        flow.source.collect_candidates_in_order(
+            &flow.target,
+            &flow.source_scope,
+            &flow.target_scope,
+            step.infer_candidates,
+            step.ignore_excluded,
+        )
+    };
+    if let Some(restrictions) = &config.restrictions {
+        candidates.retain(|(id, _)| restrictions.contains(id));
+    }
+    candidates
 }
 
 /// The scopes of all flows including their ancestors. Parameters defined in these scopes can be inferred by the flows.
