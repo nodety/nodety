@@ -88,6 +88,10 @@ fn a_conditional_output_with_parameters_inferred_from_a_closure() {
     assert_eq!(validate(keeps_union, "(Array<'a' | 'b'>) -> ()"), []);
     assert_eq!(validate("() -> (<T>(T, Integer) -> (T))", "(Array<String>) -> ()"), []);
     assert_eq!(validate("() -> ((String, Integer) -> (Unit))", "(Array<Never>) -> ()"), []);
+    assert_eq!(validate("() -> ((String, Integer) -> ('x' | Unit))", "(Array<'x'>) -> ()"), []);
+    assert_eq!(validate("() -> ((String, Integer) -> ('x'))", "(Array<'x'>) -> ()"), []);
+    assert_eq!(validate("() -> ((String, Integer) -> ({a: Integer} | Unit))", "(Array<{a: Integer}>) -> ()"), []);
+    assert_eq!(validate(keeps_union, "(Array<'a' | 'b' | Unit>) -> ()"), []);
     assert_ne!(validate(keeps_union, "(Array<'a'>) -> ()"), []);
     assert_ne!(validate(keeps_union, "(Array<Integer>) -> ()"), []);
 }
