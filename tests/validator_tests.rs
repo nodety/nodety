@@ -6,7 +6,7 @@ use nodety::{
     inference::{InferenceConfig, Scopes},
     scope::LocalParamID,
     type_expr::{ScopedTypeRef, TypeExpr},
-    validation::{ValidationError, ValidationErrorKind},
+    validation::{GraphLocation, ValidationError, ValidationErrorKind},
 };
 use petgraph::graph::NodeIndex;
 use std::collections::BTreeMap;
@@ -31,7 +31,7 @@ pub fn test_validate_invalid_bounds() {
     let scopes = engine.infer(&InferenceConfig::default());
     let errors = engine.validate(&scopes);
 
-    assert_matches!(errors[0], ValidationError { kind: ValidationErrorKind::InsufficientlyInferredTypes, .. });
+    assert_matches!(errors[0], ValidationError { kind: ValidationErrorKind::TypeParameterBoundsExceeded(_), .. });
 }
 
 /// Don't delete this test! It tests, that type params can only get inferred when their bounds are inferred.
@@ -47,7 +47,8 @@ pub fn test_validate_invalid_bounds_complex() {
         vec![(0, 1, 0, 0), (0, 1, 1, 1)],
     );
     let errors = engine.validate(&engine.infer(&InferenceConfig::default()));
-    assert_matches!(errors[0], ValidationError { kind: ValidationErrorKind::InsufficientlyInferredTypes, .. });
+    // U is not inferred before its bound T: String exceeds the inferred T = Integer.
+    assert_matches!(errors[0], ValidationError { kind: ValidationErrorKind::TypeParameterBoundsExceeded(_), .. });
 }
 
 #[test]
@@ -131,7 +132,7 @@ pub fn test_invalid_keyof() {
     );
     let scopes = engine.infer(&InferenceConfig::default());
     let errors = engine.validate(&scopes);
-    assert_matches!(errors[0], ValidationError { kind: ValidationErrorKind::InsufficientlyInferredTypes, .. });
+    assert_matches!(errors[0], ValidationError { kind: ValidationErrorKind::TypeParameterBoundsExceeded(_), .. });
 }
 
 #[test]
@@ -294,4 +295,44 @@ fn default_key_can_use_a_generic_records_guaranteed_field() {
     engine.add_edge(source, sort, Edge { source_port: 0, target_port: 0 }).unwrap();
     let errors = engine.validate(&engine.infer(&InferenceConfig::default()));
     assert_eq!(errors, []);
+}
+
+///                                     <A extends Comparable | String, B extends Comparable | String>
+///  | Integer | Unit| ----------------- |A                                                           |
+///  |        Integer| ----------------- |B                                                           |
+#[test]
+fn test_optional_into_ordering_comparison_exceeds_bound() {
+    let engine = graph(
+        vec![
+            sig_u("() -> (Integer | Unit, Integer)"),
+            sig_u("<A extends Comparable | String, B extends Comparable | String>(A, B) -> (Boolean)"),
+        ],
+        vec![(0, 1, 0, 0), (0, 1, 1, 1)],
+    );
+    let errors = engine.validate(&engine.infer(&InferenceConfig::default()));
+
+    let [
+        ValidationError { location: GraphLocation::Edge(0), kind: ValidationErrorKind::TypeParameterBoundsExceeded(d) },
+    ] = errors.as_slice()
+    else {
+        panic!("expected the bound of A to be exceeded at edge 0, got {errors:?}");
+    };
+    // The outermost layer has the bound as parent and the arm of the candidate outside of it as child.
+    let outer = d.layers().last().unwrap();
+    assert_eq!(outer.parent, expr("Comparable | String").into_erased_scope_refs());
+    assert_eq!(outer.child, expr("Unit").into_erased_scope_refs());
+}
+
+/// A parameter without a flow to infer it from stays insufficiently inferred, also when it has a bound.
+///                  <T extends Comparable>
+///  |      <U>() -> (U)| ----- |T          |
+#[test]
+fn test_uninferred_source_into_bounded_param_is_insufficiently_inferred() {
+    let engine = graph(vec![sig_u("<U>() -> (U)"), sig_u("<T extends Comparable>(T) -> ()")], vec![(0, 1, 0, 0)]);
+    let scopes = engine.infer(&InferenceConfig::default());
+    let errors = engine.validate(&scopes);
+    assert!(
+        errors.iter().all(|e| !matches!(e.kind, ValidationErrorKind::TypeParameterBoundsExceeded(_))),
+        "{errors:?}"
+    );
 }
