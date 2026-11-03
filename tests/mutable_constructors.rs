@@ -214,3 +214,16 @@ fn readonly_of_mapped_type() {
     scope.infer(&LocalParamID::from('T'), expr("mut {a: MutableArray<Integer>}"), ScopePointer::new_root()).unwrap();
     assert_eq!(readonly.normalize(&scope), expr("{a: Array<Integer>}"));
 }
+
+/// Like any union parameter, `O | Unit` takes no candidate from the arms that `Unit` already covers, also inside a
+/// mutable constructor.
+#[test]
+fn invariant_union_parameter_skips_covered_arms() {
+    let (engine, scopes) = infer(vec!["<O>() -> (MutableArray<O | Unit>)", "(MutableArray<'a' | Unit>) -> ()"]);
+    assert_eq!(engine.validate(&scopes), []);
+    assert_eq!(inferred(&scopes, 0, 'O'), expr("'a'"));
+
+    let (engine, scopes) = infer(vec!["() -> (MutableArray<'a' | Unit>)", "<I>(MutableArray<I | Unit>) -> ()"]);
+    assert_eq!(engine.validate(&scopes), []);
+    assert_eq!(inferred(&scopes, 1, 'I'), expr("'a'"));
+}
