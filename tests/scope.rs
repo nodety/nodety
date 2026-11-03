@@ -157,3 +157,18 @@ fn test_local_param_id_from_multichar_str() {
     let id3 = LocalParamID::from("world");
     assert_ne!(id1, id3);
 }
+
+/// A parameter inferred to a type of a child scope makes the scopes reach each other in a cycle.
+#[test]
+fn test_debug_of_scopes_in_a_cycle_ends() {
+    let mut parent = Scope::<DemoType>::new_root();
+    parent.define(LocalParamID::from("A"), TypeParameter::default());
+    let parent = ScopePointer::new(parent);
+    let mut child = Scope::new_child(&parent);
+    child.define(LocalParamID::from("B"), TypeParameter::default());
+    let child = ScopePointer::new(child);
+    parent.infer(&"A".into(), expr("B"), ScopePointer::clone(&child)).unwrap();
+
+    assert!(format!("{:?}", *child).contains("ScopePointer(0x"));
+    assert!(format!("{parent:?}").starts_with("ScopePointer(0x"));
+}
