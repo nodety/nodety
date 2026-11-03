@@ -1,7 +1,7 @@
 use crate::{
     Type, TypeExpr,
     scope::ScopePointer,
-    type_expr::{ScopedTypeRef, TypeRef},
+    type_expr::{ScopedTypeRef, TypeRef, subtyping::SupertypeResult},
 };
 
 impl<T: Type, R: TypeRef> TypeExpr<T, R> {
@@ -395,6 +395,20 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                 if !own_inner.supertype_of(other_inner) {
                     return;
                 }
+                // A parameter that rules `other` out, like the key of `Dq<'dns', R>` against `Dq<'dnf', X>`: none of the
+                // other parameters is a candidate then.
+                let rules_out = |(key, own_param): &(String, Self)| {
+                    other_params.get(key).is_some_and(|other_param| {
+                        !own_param.contains_type_param()
+                            && matches!(
+                                own_param.supertype_of(other_param, &own_scope, &other_scope),
+                                SupertypeResult::Unrelated(_)
+                            )
+                    })
+                };
+                if own_params.iter().any(rules_out) {
+                    return;
+                }
                 // Traverse over all common params
                 for (key, own_param) in own_params {
                     if let Some(other_param) = other_params.get(key) {
@@ -499,5 +513,22 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
             (Self::NodeSignature(_), Self::Type(_)) => (),
             (Self::NodeSignature(_), Self::Constructor { .. }) => (),
         }
+    }
+}
+
+impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
+    /// `self` with every type parameter replaced by `Any`: the shape it matches whatever the parameters are.
+    pub(crate) fn with_params_as_any(mut self) -> Self {
+        let scope = ScopePointer::new_root();
+        self.traverse_mut(
+            &scope,
+            &mut |expr, _, _| {
+                if expr.as_param().is_some() {
+                    *expr = TypeExpr::Any;
+                }
+            },
+            false,
+        );
+        self
     }
 }
