@@ -390,15 +390,11 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 computed.ok_or(Unknown)?.supertype_of_impl::<D, R2>(child, &parent_scope, &child_scope)
             }
 
-            // A rigid parameter in the child is its bound.
-            (parent, TypeExpr::Operation { a, b, operator }) => {
-                let a_normalized = a.normalize_concrete_widened(&child_scope).ok_or(Unknown)?;
-                let b_normalized = b.normalize_concrete_widened(&child_scope).ok_or(Unknown)?;
-                parent.supertype_of_impl::<D, NoRef>(
-                    &T::operation(&a_normalized, operator, &b_normalized),
-                    &parent_scope,
-                    &child_scope,
-                )
+            // What the child computes to, like `0` for `N - N`. Otherwise a rigid parameter in it is its bound.
+            (parent, child @ TypeExpr::Operation { .. }) => {
+                let computed = child.rigid_form(&child_scope).and_then(|form| form.try_into_concrete().ok());
+                let computed = computed.or_else(|| child.normalize_concrete_widened(&child_scope)).ok_or(Unknown)?;
+                parent.supertype_of_impl::<D, NoRef>(&computed, &parent_scope, &child_scope)
             }
 
             (TypeExpr::KeyOf(parent_expr), child) => {

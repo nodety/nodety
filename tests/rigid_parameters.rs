@@ -156,6 +156,8 @@ fn operations_over_rigid_parameters_compare_linearly() {
         ("N - M", "(N + 1) - (M + 1)"),
         ("1 - N", "1 - N"),
         ("N + Integer", "N + 5"),
+        ("N - N", "M - M"),
+        ("0", "N - N"),
     ] {
         assert_eq!(supertype(parent, child, &scope), SupertypeResult::Supertype, "{parent} ⊇ {child}");
     }
