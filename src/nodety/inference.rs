@@ -6,7 +6,10 @@ use crate::{
     nodety::Nodety,
     scope::{GlobalParameterId, LocalParamID, Scope, ScopePointer, type_parameter::TypeParameter},
     r#type::Type,
-    type_expr::{ParamRef, ScopedTypeExpr, TypeExpr, conditional::Conditional, node_signature::candidate::Candidate},
+    type_expr::{
+        ParamRef, ScopedTypeExpr, TypeExpr, conditional::Conditional, node_signature::candidate::Candidate,
+        traversal::Variance,
+    },
 };
 use petgraph::graph::NodeIndex;
 use petgraph::visit::IntoNodeReferences;
@@ -241,12 +244,17 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
                     }
                     candidates.retain(|candidate| !candidate.t.contains_uninferred(&candidate.scope));
                 }
-                let Some((picked_candidate_type, picked_candidate_scope)) = Candidate::pick_for_param(
-                    candidates,
-                    registered_param.parameter(),
-                    param_scope,
-                    step.direction == InferenceDirection::Backward,
-                ) else {
+                // Candidates that flow into the parameter are lower bounds, those it flows into upper bounds. The
+                // parameter is picked from the lower bounds if it has any, so that a bound from the other side (like
+                // the input of a closure) doesn't widen it.
+                let backward = step.direction == InferenceDirection::Backward;
+                let (lower, upper): (Vec<_>, Vec<_>) = candidates
+                    .into_iter()
+                    .partition(|candidate| (candidate.variance == Variance::Contravariant) == backward);
+                let (candidates, upper_bounds) = if lower.is_empty() { (upper, true) } else { (lower, false) };
+                let Some((picked_candidate_type, picked_candidate_scope)) =
+                    Candidate::pick_for_param(candidates, registered_param.parameter(), param_scope, upper_bounds)
+                else {
                     continue;
                 };
                 // A fully inferred candidate is stored normalized. Otherwise it stays a reference to the type of the

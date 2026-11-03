@@ -322,3 +322,25 @@ proptest::proptest! {
         proptest::prop_assert!(a.supertype_of(&reshaped(a_value), &scope, &scope).is_supertype());
     }
 }
+
+/// A parameter in the input of a closure is bounded from above: `(Any) -> ()` takes every `D`, so it doesn't widen `D`.
+#[test]
+fn a_closure_input_does_not_widen_a_parameter() {
+    let generic = "<D>(f: (D) -> () = (Any) -> (), x: D) -> (D)";
+    let program = Program::new(
+        &[("() -> (Integer)", None), (generic, None), ("<R>(R) -> ()", None)],
+        &[(0, 1, 0, 1), (1, 2, 0, 0)],
+    );
+    assert_eq!(program.errors(), []);
+    let (inferred, scope) = program.inferred(2, "R");
+    assert_eq!(inferred.normalize(&scope), expr("Integer"));
+
+    // In a body, the same keeps a rigid parameter: before, `D` became `{}` and didn't fit the output `C`.
+    let nodes = [
+        ("<rigid C extends {}>() -> ()", None),
+        ("() -> (C)", Some(0)),
+        ("<D extends {}>(f: ({row: D}) -> (Integer) = ({row: {}}) -> (Integer), x: D) -> (D)", Some(0)),
+        ("(C) -> ()", Some(0)),
+    ];
+    assert_eq!(Program::new(&nodes, &[(1, 2, 0, 1), (2, 3, 0, 0)]).errors(), []);
+}

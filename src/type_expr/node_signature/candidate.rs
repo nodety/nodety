@@ -1,7 +1,7 @@
 use crate::{
     scope::{ScopePointer, type_parameter::TypeParameter},
     r#type::Type,
-    type_expr::{ScopedTypeExpr, ScopedTypeRef, TypeExpr},
+    type_expr::{ScopedTypeExpr, ScopedTypeRef, TypeExpr, traversal::Variance},
 };
 
 /// A candidate for a type parameter.
@@ -11,6 +11,9 @@ pub struct Candidate<T: Type> {
     pub t: ScopedTypeExpr<T>,
     /// The scope of the candidate.
     pub scope: ScopePointer<T>,
+    /// Of the parameter's position in the type that collected the candidate: a candidate from a contravariant
+    /// position (the input of a node signature) bounds the parameter from the other side.
+    pub variance: Variance,
 }
 
 impl<T: Type> Candidate<T> {
@@ -191,7 +194,7 @@ mod tests {
     use crate::scope::ScopePointer;
 
     fn candidate(t: &str, scope: ScopePointer<crate::demo_type::DemoType>) -> Candidate<crate::demo_type::DemoType> {
-        Candidate { t: expr(t), scope }
+        Candidate { t: expr(t), scope, variance: Variance::Covariant }
     }
 
     #[test]
