@@ -35,7 +35,7 @@ pub struct TypeParameter<T: Type, R: TypeRef = ParamRef> {
     ///
     /// As a child it is its bound. As a parent it is a supertype only of itself and `Never`, and of operations that
     /// [Type::operation](crate::Type::operation) computes to it (`N + 0`).
-    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "std::ops::Not::not"))]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub rigid: bool,
 }
 
