@@ -28,11 +28,24 @@ pub struct RigidRef<T: Type> {
 /// An expression over rigid parameters, see [RigidRef].
 pub type RigidTypeExpr<T> = TypeExpr<T, RigidRef<T>>;
 
-/// The references [Type::operation] can get: none, or rigid parameters. Sealed.
+/// The references the operands of [Type::operation] can have: none ([NoRef], concrete operands) or only rigid
+/// parameters ([RigidRef], symbolic operands). Sealed: these two are all there are.
 ///
-/// [Type::operation] can't create one, it can only pass on those it got.
-pub trait OperandRef<T: Type>: AsScopedRef<T> + Eq + Ord + Hash {}
+/// It lets one implementation of [Type::operation] handle both kinds of operands, and it promises the implementation
+/// what it needs for that:
+/// - The references are rigid parameters, never uninferred ones, so an operation over them stays the same however
+///   inference goes on and can be computed now.
+/// - `Ord` and `Hash` order and identify them, so that the implementation can sort the terms of a canonical form.
+///   Two references are equal iff they are the same rigid parameter.
+/// - It can't create a reference, only pass on those it got, so the result means nothing nodety doesn't know.
+pub trait OperandRef<T: Type>: sealed::OperandRef + AsScopedRef<T> + Eq + Ord + Hash {}
 
+mod sealed {
+    pub trait OperandRef {}
+}
+
+impl sealed::OperandRef for NoRef {}
+impl<T: Type> sealed::OperandRef for RigidRef<T> {}
 impl<T: Type> OperandRef<T> for NoRef {}
 impl<T: Type> OperandRef<T> for RigidRef<T> {}
 
