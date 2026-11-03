@@ -1,5 +1,4 @@
 use crate::common::{expr, expr_u, sig};
-use maplit::btreeset;
 use nodety::{
     NodeSignature, Type,
     demo_type::{DemoType, SIUnit},
@@ -23,11 +22,9 @@ pub fn test_never_of_signatures() {
 
 #[test]
 pub fn test_mother_of_signatures() {
-    let mut mother_of_signatures = sig("Never -> Any");
-    mother_of_signatures.tags = None;
+    let mother_of_signatures = sig("Never -> Any effects <Any>");
 
-    let mut child = sig("<T>(T, String) -> (Integer, T)");
-    child.tags = Some(btreeset! {123});
+    let child = sig("<T>(T, String) -> (Integer, T) effects <Nondeterministic>");
 
     assert!(mother_of_signatures.clone().supertype_of(child).is_supertype());
 
@@ -486,7 +483,7 @@ fn test_normalize_nested_index() {
 }
 
 /// An intersection is indexed as the intersected type, not per side: a side without the key mustn't contribute its
-/// missing-key type (in Graphite `Unit`, which turned `({a: Integer} & {b: String})['b']` into `Never`).
+/// missing-key type (with `Unit` as missing-key type, `({a: Integer} & {b: String})['b']` would become `Never`).
 #[test]
 fn test_normalize_index_of_intersection() {
     let scope = ScopePointer::<DemoType>::new_root();

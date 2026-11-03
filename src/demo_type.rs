@@ -76,6 +76,10 @@ pub enum DemoType {
     MutableArray,
     SI(SIUnit, f64),
     AnySI,
+    /// Effect of nodes whose outputs don't only depend on their inputs.
+    Nondeterministic,
+    /// Effect of nodes that may fail.
+    Fallible,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -128,6 +132,10 @@ impl Type for DemoType {
             // SI
             (Self::SI(a, a_scale), Self::SI(b, b_scale)) => a == b && a_scale == b_scale,
             (Self::AnySI, Self::AnySI | Self::SI(_, _)) => true,
+
+            // Effects
+            (Self::Nondeterministic, Self::Nondeterministic) => true,
+            (Self::Fallible, Self::Fallible) => true,
             (_, _) => false,
         }
     }

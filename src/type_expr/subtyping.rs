@@ -140,14 +140,8 @@ pub enum NoSupertypeLayerReason {
     NodeSignatureInputs,
     /// NodeSignature: outputs (covariant) failed.
     NodeSignatureOutputs,
-    /// NodeSignature: the parent's provided tags are not a superset of the
-    /// child's provided tags. A parent must carry at least every tag the
-    /// child carries (tags are covariant).
-    NodeSignatureTags,
-    /// NodeSignature: the child's required tags are not a superset of the
-    /// parent's required tags. A child may require *more* tags but never
-    /// *fewer* than the parent (required tags are contravariant).
-    NodeSignatureRequiredTags,
+    /// NodeSignature: effects (covariant) failed. The child may have effects the parent doesn't allow.
+    NodeSignatureEffects,
     /// PortTypes: child has no varg but parent has.
     PortTypesVarg,
     /// PortTypes: arity mismatch (missing port).
@@ -439,6 +433,29 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 })
             }
 
+            // A child that computes to another type, possibly a union, is computed before a union parent splits into
+            // its arms: `'a' | 'b'` is a supertype of a child that computes to `'a' | 'b'`, but neither arm alone is.
+            (parent, TypeExpr::Intersection(child_a, child_b)) => {
+                let (intersection, intersection_scope) =
+                    TypeExpr::intersection(child_a, child_b, &child_scope, &child_scope).ok_or(Unknown)?;
+                parent
+                    .supertype_of_impl::<D, ScopedTypeRef<T>>(&intersection, &parent_scope, &intersection_scope)
+                    .map_err(|e| e.map_unrelated(|d| d.add_layer(parent, &child, None)))
+            }
+
+            (parent, TypeExpr::Conditional(conditional)) => parent.supertype_of_impl::<D, ScopedTypeRef<T>>(
+                &conditional.distribute(&child_scope).ok_or(Unknown)?,
+                &parent_scope,
+                &child_scope,
+            ),
+
+            (parent, TypeExpr::Index { expr, index }) => {
+                let (index_type, index_scope) = expr.index(index, &child_scope, &child_scope).ok_or(Unknown)?;
+                parent
+                    .supertype_of_impl::<D, ScopedTypeRef<T>>(&index_type, &parent_scope, &index_scope)
+                    .map_err(|e| e.map_unrelated(|d| d.add_layer(parent, &child, Some(NoSupertypeLayerReason::Index))))
+            }
+
             // self must be a supertype of both child_a and child_b.
             (parent @ TypeExpr::Union(_, _), TypeExpr::Union(child_a, child_b)) => {
                 match (
@@ -484,24 +501,10 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                     .map_err(|e| e.map_unrelated(|d| d.add_layer(self, child, None)))
             }
 
-            (parent, TypeExpr::Intersection(child_a, child_b)) => {
-                let (intersection, intersection_scope) =
-                    TypeExpr::intersection(child_a, child_b, &child_scope, &child_scope).ok_or(Unknown)?;
-                parent
-                    .supertype_of_impl::<D, ScopedTypeRef<T>>(&intersection, &parent_scope, &intersection_scope)
-                    .map_err(|e| e.map_unrelated(|d| d.add_layer(parent, &child, None)))
-            }
-
             (TypeExpr::Conditional(conditional), child) => conditional
                 .distribute(&parent_scope)
                 .ok_or(Unknown)?
                 .supertype_of_impl::<D, R2>(child, &parent_scope, &child_scope),
-
-            (parent, TypeExpr::Conditional(conditional)) => parent.supertype_of_impl::<D, ScopedTypeRef<T>>(
-                &conditional.distribute(&child_scope).ok_or(Unknown)?,
-                &parent_scope,
-                &child_scope,
-            ),
 
             (parent @ TypeExpr::NodeSignature(parent_sig), child @ TypeExpr::NodeSignature(child_sig)) => {
                 // Inputs: parent (interface) with varg cannot be supertype of child (impl) when child
@@ -539,30 +542,15 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                         })
                     })?;
 
-                // Tags: self can have more tags (provides more), but must have all of other's required tags
-                if let Some(parent_tags) = &parent_sig.tags {
-                    if let Some(child_tags) = &child_sig.tags {
-                        if !parent_tags.is_superset(child_tags) {
-                            return Err(Unrelated(D::new(
-                                parent,
-                                child,
-                                Some(NoSupertypeLayerReason::NodeSignatureTags),
-                            )));
-                        }
-                    } else {
-                        // Child tags are All and parent tags are not => no supertype
-                        return Err(Unrelated(D::new(parent, child, Some(NoSupertypeLayerReason::NodeSignatureTags))));
-                    }
-                } // else: parent tags are all the tags in the universe so supertype of all other tags.
-
-                // Required tags: self can require less (more permissive) But can't require more.
-                if !child_sig.required_tags.is_superset(&parent_sig.required_tags) {
-                    return Err(Unrelated(D::new(
-                        parent,
-                        child,
-                        Some(NoSupertypeLayerReason::NodeSignatureRequiredTags),
-                    )));
-                }
+                // covariant
+                parent_sig
+                    .effects
+                    .supertype_of_impl::<D, R2>(&child_sig.effects, &parent_scope, &child_scope)
+                    .map_err(|e| {
+                        e.map_unrelated(|d| {
+                            d.add_layer(parent, child, Some(NoSupertypeLayerReason::NodeSignatureEffects))
+                        })
+                    })?;
                 Ok(())
             }
 
@@ -596,13 +584,6 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 index_type
                     .supertype_of_impl::<D, R2>(child, &index_scope, &child_scope)
                     .map_err(|e| e.map_unrelated(|d| d.add_layer(self, child, Some(NoSupertypeLayerReason::Index))))
-            }
-
-            (parent, TypeExpr::Index { expr, index }) => {
-                let (index_type, index_scope) = expr.index(index, &child_scope, &child_scope).ok_or(Unknown)?;
-                parent
-                    .supertype_of_impl::<D, ScopedTypeRef<T>>(&index_type, &parent_scope, &index_scope)
-                    .map_err(|e| e.map_unrelated(|d| d.add_layer(parent, &child, Some(NoSupertypeLayerReason::Index))))
             }
 
             // Last so that child is not TypeParameter or Union variant.

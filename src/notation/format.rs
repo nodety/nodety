@@ -153,6 +153,8 @@ impl FormattableType for DemoType {
                 Ok(write!(f, ")")?)
             }
             Self::AnySI => Ok(write!(f, "AnySI")?),
+            Self::Nondeterministic => Ok(write!(f, "Nondeterministic")?),
+            Self::Fallible => Ok(write!(f, "Fallible")?),
         }
     }
 
@@ -169,8 +171,36 @@ impl<T: FormattableType, R: UnscopedRef> NodeSignature<T, R> {
         format_type_params(&self.parameters, f)?;
         self.inputs.format_type(f, true)?;
         write!(f, " -> ")?;
-        self.outputs.format_type(f, true)
+        self.outputs.format_type(f, true)?;
+        if self.effects != TypeExpr::Never {
+            write!(f, " effects ")?;
+            format_effects(&self.effects, f)?;
+        }
+        if self.handles != TypeExpr::Never {
+            write!(f, " handles ")?;
+            format_effects(&self.handles, f)?;
+        }
+        Ok(())
     }
+}
+
+/// `<A> <B>` for `A | B`. Only the left spine of the union is split into brackets, so that parsing gives back the
+/// same structure.
+fn format_effects<T: FormattableType, R: UnscopedRef>(
+    effects: &TypeExpr<T, R>,
+    f: &mut std::fmt::Formatter<'_>,
+) -> fmt::Result {
+    let last = match effects {
+        TypeExpr::Union(left, right) => {
+            format_effects(left, f)?;
+            write!(f, " ")?;
+            right
+        }
+        effect => effect,
+    };
+    write!(f, "<")?;
+    last.format_type(f, false)?;
+    write!(f, ">")
 }
 
 impl<T: FormattableType, R: UnscopedRef> TypeExpr<T, R> {
