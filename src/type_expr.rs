@@ -490,6 +490,7 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                     ignore_excluded: true,
                 },
             ],
+            respect_variance: false,
             ..Default::default()
         };
         infer(flows, &config);

@@ -343,4 +343,14 @@ fn a_closure_input_does_not_widen_a_parameter() {
         ("(C) -> ()", Some(0)),
     ];
     assert_eq!(Program::new(&nodes, &[(1, 2, 0, 1), (2, 3, 0, 0)]).errors(), []);
+
+    // The lower bound arrives only once a node in between is inferred: `D` waits for it.
+    let nodes = [
+        ("<rigid C extends {}>() -> ()", None),
+        ("() -> (C)", Some(0)),
+        ("<T>(T) -> (Array<T>)", Some(0)),
+        ("<D extends {}>(f: ({row: D}) -> (Integer) = ({row: {}}) -> (Integer), xs: Array<D>) -> (D)", Some(0)),
+        ("(C) -> ()", Some(0)),
+    ];
+    assert_eq!(Program::new(&nodes, &[(1, 2, 0, 0), (2, 3, 0, 1), (3, 4, 0, 0)]).errors(), []);
 }
