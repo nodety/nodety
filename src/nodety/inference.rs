@@ -7,8 +7,7 @@ use crate::{
     scope::{GlobalParameterId, LocalParamID, Scope, ScopePointer, type_parameter::TypeParameter},
     r#type::Type,
     type_expr::{
-        ParamRef, ScopedTypeExpr, TypeExpr, conditional::Conditional, node_signature::candidate::Candidate,
-        traversal::Variance,
+        ScopedTypeExpr, TypeExpr, conditional::Conditional, node_signature::candidate::Candidate, traversal::Variance,
     },
 };
 use petgraph::graph::NodeIndex;
@@ -351,29 +350,16 @@ fn awaited_params<T: Type>(
     node_scopes: &HashSet<ScopePointer<T>>,
     config: &InferenceConfig<T>,
 ) -> Vec<GlobalParameterId<T>> {
-    let mut awaited = Vec::new();
-    candidate.t.traverse(
-        &candidate.scope,
-        &mut |expr, traverse_scope, _is_tl_union| {
-            let Some(ParamRef { param_id, .. }) = expr.as_param() else {
-                return;
-            };
-            let Some(param_scope) = traverse_scope.lookup_scope(param_id) else {
-                return;
-            };
-            if param_scope.lookup(param_id).is_some_and(|(var, _)| !var.is_uninferred())
-                || !node_scopes.contains(&param_scope)
-            {
-                return;
-            }
-            let global_id = GlobalParameterId { scope: param_scope, local_id: *param_id };
-            if config.restrictions.as_ref().is_none_or(|restrictions| restrictions.contains(&global_id)) {
-                awaited.push(global_id);
-            }
-        },
-        false,
-    );
-    awaited
+    candidate
+        .t
+        .referenced_params(&candidate.scope)
+        .into_iter()
+        .filter(|id| {
+            id.scope.lookup(&id.local_id).is_none_or(|(var, _)| var.is_uninferred())
+                && node_scopes.contains(&id.scope)
+                && config.restrictions.as_ref().is_none_or(|restrictions| restrictions.contains(id))
+        })
+        .collect()
 }
 
 /// Tests if `from` waits for `to`, directly or through other uninferred parameters.
