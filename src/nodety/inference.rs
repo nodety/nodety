@@ -6,7 +6,10 @@ use crate::{
     nodety::Nodety,
     scope::{GlobalParameterId, LocalParamID, Scope, ScopePointer, type_parameter::TypeParameter},
     r#type::Type,
-    type_expr::{ParamRef, ScopedTypeExpr, TypeExpr, conditional::Conditional, node_signature::candidate::Candidate},
+    type_expr::{
+        ParamRef, ScopedTypeExpr, TypeExpr, conditional::Conditional, node_signature::candidate::Candidate,
+        traversal::Variance,
+    },
 };
 use petgraph::graph::NodeIndex;
 use petgraph::visit::IntoNodeReferences;
@@ -148,11 +151,16 @@ pub struct InferenceConfig<T: Type> {
     /// If some, inference will stop as soon as all of these parameters are inferred.
     /// Others might still get inferred first in order to get to these.
     pub stop_after: Option<HashSet<GlobalParameterId<T>>>,
+    /// If true, a candidate from a contravariant position (the input of a node signature) bounds its parameter from
+    /// the other side than one from a covariant position, and parameters are picked from their lower bounds.
+    /// False when the flows are templates the parameters have to match, see
+    /// [build_inferred_child_scope](crate::TypeExpr::build_inferred_child_scope).
+    pub respect_variance: bool,
 }
 
 impl<T: Type> Default for InferenceConfig<T> {
     fn default() -> Self {
-        Self { steps: InferenceStep::default_steps(), restrictions: None, stop_after: None }
+        Self { steps: InferenceStep::default_steps(), restrictions: None, stop_after: None, respect_variance: true }
     }
 }
 
@@ -237,12 +245,23 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
                     }
                     candidates.retain(|candidate| !candidate.t.contains_uninferred(&candidate.scope));
                 }
-                let Some((picked_candidate_type, picked_candidate_scope)) = Candidate::pick_for_param(
-                    candidates,
-                    registered_param.parameter(),
-                    param_scope,
-                    step.direction == InferenceDirection::Backward,
-                ) else {
+                // Candidates that flow into the parameter are lower bounds, those it flows into upper bounds. The
+                // parameter is picked from the lower bounds if it has any, so that a bound from the other side (like
+                // the input of a closure) doesn't widen it.
+                let backward = step.direction == InferenceDirection::Backward;
+                let (lower, upper): (Vec<_>, Vec<_>) = candidates.into_iter().partition(|candidate| {
+                    !config.respect_variance || (candidate.variance == Variance::Contravariant) == backward
+                });
+                // In a forward pass, a parameter with only upper bounds (from the inputs of closures) waits for the
+                // passes that allow uninferred candidates: a flow whose source isn't inferred yet gives no lower bound
+                // at all so far.
+                if lower.is_empty() && !backward && config.respect_variance && !step.allow_uninferred {
+                    continue;
+                }
+                let (candidates, upper_bounds) = if lower.is_empty() { (upper, true) } else { (lower, false) };
+                let Some((picked_candidate_type, picked_candidate_scope)) =
+                    Candidate::pick_for_param(candidates, registered_param.parameter(), param_scope, upper_bounds)
+                else {
                     continue;
                 };
                 // A fully inferred candidate is stored normalized. Otherwise it stays a reference to the type of the
@@ -342,7 +361,9 @@ fn awaited_params<T: Type>(
             let Some(param_scope) = traverse_scope.lookup_scope(param_id) else {
                 return;
             };
-            if param_scope.is_inferred(param_id) || !node_scopes.contains(&param_scope) {
+            if param_scope.lookup(param_id).is_some_and(|(var, _)| !var.is_uninferred())
+                || !node_scopes.contains(&param_scope)
+            {
                 return;
             }
             let global_id = GlobalParameterId { scope: param_scope, local_id: *param_id };

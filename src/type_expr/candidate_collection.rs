@@ -1,7 +1,7 @@
 use crate::{
     scope::{GlobalParameterId, ScopePointer},
     r#type::Type,
-    type_expr::{ScopedTypeExpr, node_signature::candidate::Candidate},
+    type_expr::{ScopedTypeExpr, node_signature::candidate::Candidate, traversal::Variance},
 };
 use std::collections::HashMap;
 
@@ -38,10 +38,12 @@ impl<T: Type> ScopedTypeExpr<T> {
             own_scope,
             source_scope,
             infer_source_from_self,
+            Variance::Covariant,
             &mut |own_type: &Self,
                   source_type: &Self,
                   own_traversal_scope: &ScopePointer<T>,
-                  source_traversal_scope: &ScopePointer<T>| {
+                  source_traversal_scope: &ScopePointer<T>,
+                  variance: Variance| {
                 // if the own_type has infer == false, no candidates get emitted from here.
                 let Some(own_param) = own_type.as_param() else {
                     return;
@@ -52,8 +54,8 @@ impl<T: Type> ScopedTypeExpr<T> {
                 let Some(param_scope) = own_traversal_scope.lookup_scope(&own_param.param_id) else {
                     return;
                 };
-                if param_scope.is_inferred(&own_param.param_id) {
-                    // Don't collect candidates for already inferred parameters.
+                if param_scope.lookup(&own_param.param_id).is_some_and(|(var, _)| !var.is_uninferred()) {
+                    // Don't collect candidates for already inferred or rigid parameters.
                     return;
                 }
                 let global_id = GlobalParameterId { scope: param_scope, local_id: own_param.param_id };
@@ -64,7 +66,7 @@ impl<T: Type> ScopedTypeExpr<T> {
                     return;
                 }
                 let candidate =
-                    Candidate { t: source_type.clone(), scope: ScopePointer::clone(source_traversal_scope) };
+                    Candidate { t: source_type.clone(), scope: ScopePointer::clone(source_traversal_scope), variance };
                 match candidates.iter_mut().find(|(id, _)| *id == global_id) {
                     Some((_, param_candidates)) => param_candidates.push(candidate),
                     None => candidates.push((global_id, vec![candidate])),
@@ -92,7 +94,7 @@ mod tests {
 
         let expected = vec![(
             GlobalParameterId { scope: target_scope, local_id: "T".into() },
-            vec![Candidate { t: expr("Integer"), scope: source_scope }],
+            vec![Candidate { t: expr("Integer"), scope: source_scope, variance: Variance::Covariant }],
         )];
         assert_eq!(expected, candidates);
     }

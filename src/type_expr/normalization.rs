@@ -30,11 +30,11 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 key.normalize(&key_scope)
             }
 
-            // The operands have to be fully resolved before the operation can be evaluated.
+            // The operands have to be fully resolved (or rigid) before the operation can be evaluated.
             // As long as they aren't, the operation stays as it is and gets evaluated later.
-            Self::Operation { a, b, operator } => match (a.normalize_concrete(&scope), b.normalize_concrete(&scope)) {
-                (Some(a_normalized), Some(b_normalized)) => T::operation(&a_normalized, operator, &b_normalized).into(),
-                _ => TypeExpr::Operation {
+            Self::Operation { a, b, operator } => match self.rigid_form(&scope) {
+                Some(form) => form.into_scoped(),
+                None => TypeExpr::Operation {
                     a: Box::new(a.normalize(&scope)),
                     operator: operator.clone(),
                     b: Box::new(b.normalize(&scope)),

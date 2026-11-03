@@ -69,6 +69,9 @@ pub fn format_type_params<T: FormattableType, R: UnscopedRef>(
         if !first {
             write!(f, ", ")?;
         }
+        if param.rigid {
+            write!(f, "rigid ")?;
+        }
         format_type_param(*ident, f)?;
         if let Some(bound) = &param.bound {
             write!(f, " extends ")?;
@@ -121,6 +124,7 @@ impl FormattableType for DemoType {
             Self::Countable => Ok(write!(f, "Countable")?),
             Self::Float => Ok(write!(f, "Float")?),
             Self::Integer => Ok(write!(f, "Integer")?),
+            Self::IntegerLiteral(literal) => Ok(write!(f, "{literal}")?),
             Self::Record => {
                 f.write_str("{")?;
                 let mut first = true;
@@ -159,6 +163,8 @@ impl FormattableType for DemoType {
         match operator {
             DemoOperator::Multiplication => Ok(write!(f, "*")?),
             DemoOperator::Division => Ok(write!(f, "/")?),
+            DemoOperator::Addition => Ok(write!(f, "+")?),
+            DemoOperator::Subtraction => Ok(write!(f, "-")?),
         }
     }
 }

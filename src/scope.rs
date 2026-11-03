@@ -53,6 +53,8 @@ impl From<&str> for LocalParamID {
 pub enum ScopeError {
     ParameterNotFound,
     ParameterAlreadyInferred,
+    /// Rigid parameters never get inferred, see [TypeParameter::rigid].
+    ParameterRigid,
 }
 
 #[derive(Debug, Clone)]
@@ -132,6 +134,11 @@ impl<T: Type> ScopePointer<T> {
     pub fn new_root() -> Self {
         Self(Rc::new(Scope::new_root()))
     }
+
+    /// Identifies the scope as [PartialEq] does.
+    pub(crate) fn address(&self) -> usize {
+        Rc::as_ptr(&self.0) as usize
+    }
 }
 
 /// Type scope in the tree of types.
@@ -174,6 +181,16 @@ impl<T: Type> RegisteredTypeVar<T> {
 
     pub fn is_inferred(&self) -> bool {
         self.inferred.borrow().is_some()
+    }
+
+    /// See [TypeParameter::rigid].
+    pub fn is_rigid(&self) -> bool {
+        self.parameter.rigid
+    }
+
+    /// Whether inference still waits for this parameter: neither inferred nor rigid.
+    pub fn is_uninferred(&self) -> bool {
+        !self.is_rigid() && !self.is_inferred()
     }
 }
 
@@ -288,6 +305,9 @@ impl<T: Type> Scope<T> {
         let Some(registered) = self.parameters.get(ident) else {
             return Err(ScopeError::ParameterNotFound);
         };
+        if registered.is_rigid() {
+            return Err(ScopeError::ParameterRigid);
+        }
         let mut inferred_ref = registered.inferred.borrow_mut();
         if inferred_ref.is_some() {
             return Err(ScopeError::ParameterAlreadyInferred);
@@ -297,10 +317,11 @@ impl<T: Type> Scope<T> {
     }
 
     /// # Returns
-    /// An iterator over all variable identifiers that are not yet inferred.
+    /// An iterator over all variable identifiers that are not yet inferred. Rigid parameters are never inferred and
+    /// are left out.
     pub fn uninferred(&self) -> impl Iterator<Item = (LocalParamID, TypeParameter<T, ScopedTypeRef<T>>)> {
         self.parameters.iter().filter_map(|(ident, param)| {
-            if param.inferred.borrow().is_none() { Some((*ident, param.parameter.clone())) } else { None }
+            if param.is_uninferred() { Some((*ident, param.parameter.clone())) } else { None }
         })
     }
 

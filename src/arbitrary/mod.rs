@@ -62,6 +62,8 @@ impl proptest::arbitrary::Arbitrary for DemoOperator {
         proptest::prop_oneof![
             proptest::strategy::Just(DemoOperator::Multiplication),
             proptest::strategy::Just(DemoOperator::Division),
+            proptest::strategy::Just(DemoOperator::Addition),
+            proptest::strategy::Just(DemoOperator::Subtraction),
         ]
         .boxed()
     }
@@ -234,8 +236,8 @@ where
     type Parameters = ArbitraryExprParams<T>;
 
     fn arbitrary_with(ArbitraryExprParams { expr_strat }: Self::Parameters) -> Self::Strategy {
-        (proptest::option::of(expr_strat.clone()), proptest::option::of(expr_strat.clone()))
-            .prop_map(|(bound, default)| TypeParameter { bound, default })
+        (proptest::option::of(expr_strat.clone()), proptest::option::of(expr_strat.clone()), any::<bool>())
+            .prop_map(|(bound, default, rigid)| TypeParameter { bound, default, rigid })
             .boxed()
     }
 }
@@ -246,6 +248,7 @@ impl Arbitrary for DemoType {
     fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
         prop_oneof![
             Just(DemoType::Integer),
+            any::<i8>().prop_map(|literal| DemoType::IntegerLiteral(literal.into())),
             Just(DemoType::Float),
             any::<Option<String>>().prop_map(DemoType::String),
             Just(DemoType::Boolean),

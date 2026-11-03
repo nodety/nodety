@@ -1,4 +1,6 @@
-use crate::type_expr::{ConcreteTypeExpr, ConstructorParams, TypeExpr, TypeRef, node_signature::NodeSignature};
+use crate::type_expr::{
+    ConcreteTypeExpr, ConstructorParams, OperandRef, TypeExpr, TypeRef, node_signature::NodeSignature,
+};
 use std::{fmt::Debug, hash::Hash};
 
 #[cfg(feature = "json-schema")]
@@ -135,17 +137,26 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
     /// Checkout the [SIUnit](crate::demo_type::SIUnit) type for a reference implementation with operators.
     ///
     /// # Parameters
-    /// `a` and `b` are fully normalized and provably free of type parameters, so they can be
-    /// understood without a scope. If either operand still references an uninferred parameter,
-    /// nodety leaves the operation unevaluated instead of calling this method.
+    /// `a` and `b` are fully normalized. They reference nothing ([NoRef](crate::type_expr::NoRef)), or only rigid
+    /// type parameters ([RigidRef](crate::type_expr::RigidRef), see
+    /// [TypeParameter::rigid](crate::scope::type_parameter::TypeParameter::rigid)). If either operand still
+    /// references an uninferred parameter, nodety leaves the operation unevaluated instead of calling this method.
+    ///
+    /// # Symbolic operands
+    /// An operation over rigid parameters can't be computed to a value. Return a canonical expression for it
+    /// instead: nodety compares those structurally, so two operations are equal types if and only if their
+    /// canonical expressions are equal (`N + 1` and `1 + N` both e.g. `N + 1`, but `N + 2` something else).
+    /// Return [TypeExpr::Never] if the operation is not permitted. As a child, nodety replaces every rigid
+    /// parameter in an operation by its bound and calls this again with concrete operands, which assumes the
+    /// operation is monotone: a wider operand never gives a narrower result.
     ///
     /// # Returns
     /// the result type of the operation, or `Never` if the operation is not permitted.
-    fn operation(
-        _a: &ConcreteTypeExpr<Self>,
+    fn operation<R: OperandRef<Self>>(
+        _a: &TypeExpr<Self, R>,
         _operator: &Self::Operator,
-        _b: &ConcreteTypeExpr<Self>,
-    ) -> ConcreteTypeExpr<Self> {
+        _b: &TypeExpr<Self, R>,
+    ) -> TypeExpr<Self, R> {
         TypeExpr::Never
     }
 

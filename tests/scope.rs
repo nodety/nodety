@@ -78,7 +78,7 @@ fn test_scope_infer_parameter_not_found_error() {
 #[test]
 fn test_scope_infer_defaults_with_default() {
     let mut scope = Scope::<DemoType>::new_root();
-    scope.define(LocalParamID(0), TypeParameter { bound: None, default: Some(expr("Integer")) });
+    scope.define(LocalParamID(0), TypeParameter { bound: None, default: Some(expr("Integer")), rigid: false });
     let scope_ptr = ScopePointer::new(scope);
     scope_ptr.infer_bounds();
 
@@ -89,7 +89,7 @@ fn test_scope_infer_defaults_with_default() {
 #[test]
 fn test_scope_infer_defaults_with_bound_no_default() {
     let mut scope = Scope::<DemoType>::new_root();
-    scope.define(LocalParamID(0), TypeParameter { bound: Some(expr("Comparable")), default: None });
+    scope.define(LocalParamID(0), TypeParameter { bound: Some(expr("Comparable")), default: None, rigid: false });
     let scope_ptr = ScopePointer::new(scope);
     scope_ptr.infer_bounds();
 
