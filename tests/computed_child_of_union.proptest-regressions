@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 57790c4184bb579a39b535b6583da335d6f35212ac89284fdb25816599fcbc94 # shrinks to arms = ["Float", "'a'"], units = [0]

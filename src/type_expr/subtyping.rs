@@ -423,6 +423,29 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 })
             }
 
+            // A child that computes to another type, possibly a union, is computed before a union parent splits into
+            // its arms: `'a' | 'b'` is a supertype of a child that computes to `'a' | 'b'`, but neither arm alone is.
+            (parent, TypeExpr::Intersection(child_a, child_b)) => {
+                let (intersection, intersection_scope) =
+                    TypeExpr::intersection(child_a, child_b, &child_scope, &child_scope).ok_or(Unknown)?;
+                parent
+                    .supertype_of_impl::<D, ScopedTypeRef<T>>(&intersection, &parent_scope, &intersection_scope)
+                    .map_err(|e| e.map_unrelated(|d| d.add_layer(parent, &child, None)))
+            }
+
+            (parent, TypeExpr::Conditional(conditional)) => parent.supertype_of_impl::<D, ScopedTypeRef<T>>(
+                &conditional.distribute(&child_scope).ok_or(Unknown)?,
+                &parent_scope,
+                &child_scope,
+            ),
+
+            (parent, TypeExpr::Index { expr, index }) => {
+                let (index_type, index_scope) = expr.index(index, &child_scope, &child_scope).ok_or(Unknown)?;
+                parent
+                    .supertype_of_impl::<D, ScopedTypeRef<T>>(&index_type, &parent_scope, &index_scope)
+                    .map_err(|e| e.map_unrelated(|d| d.add_layer(parent, &child, Some(NoSupertypeLayerReason::Index))))
+            }
+
             // self must be a supertype of both child_a and child_b.
             (parent @ TypeExpr::Union(_, _), TypeExpr::Union(child_a, child_b)) => {
                 match (
@@ -468,24 +491,10 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                     .map_err(|e| e.map_unrelated(|d| d.add_layer(self, child, None)))
             }
 
-            (parent, TypeExpr::Intersection(child_a, child_b)) => {
-                let (intersection, intersection_scope) =
-                    TypeExpr::intersection(child_a, child_b, &child_scope, &child_scope).ok_or(Unknown)?;
-                parent
-                    .supertype_of_impl::<D, ScopedTypeRef<T>>(&intersection, &parent_scope, &intersection_scope)
-                    .map_err(|e| e.map_unrelated(|d| d.add_layer(parent, &child, None)))
-            }
-
             (TypeExpr::Conditional(conditional), child) => conditional
                 .distribute(&parent_scope)
                 .ok_or(Unknown)?
                 .supertype_of_impl::<D, R2>(child, &parent_scope, &child_scope),
-
-            (parent, TypeExpr::Conditional(conditional)) => parent.supertype_of_impl::<D, ScopedTypeRef<T>>(
-                &conditional.distribute(&child_scope).ok_or(Unknown)?,
-                &parent_scope,
-                &child_scope,
-            ),
 
             (parent @ TypeExpr::NodeSignature(parent_sig), child @ TypeExpr::NodeSignature(child_sig)) => {
                 // Inputs: parent (interface) with varg cannot be supertype of child (impl) when child
@@ -580,13 +589,6 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 index_type
                     .supertype_of_impl::<D, R2>(child, &index_scope, &child_scope)
                     .map_err(|e| e.map_unrelated(|d| d.add_layer(self, child, Some(NoSupertypeLayerReason::Index))))
-            }
-
-            (parent, TypeExpr::Index { expr, index }) => {
-                let (index_type, index_scope) = expr.index(index, &child_scope, &child_scope).ok_or(Unknown)?;
-                parent
-                    .supertype_of_impl::<D, ScopedTypeRef<T>>(&index_type, &parent_scope, &index_scope)
-                    .map_err(|e| e.map_unrelated(|d| d.add_layer(parent, &child, Some(NoSupertypeLayerReason::Index))))
             }
 
             // Last so that child is not TypeParameter or Union variant.
