@@ -38,7 +38,8 @@ impl<T: Type> ScopedTypeExpr<T> {
             | Self::KeyOf(_)
             | Self::Index { .. }
             | Self::Operation { .. }
-            | Self::Conditional(_) => Self::Readonly(Box::new(self)),
+            | Self::Conditional(_)
+            | Self::Mapped(_) => Self::Readonly(Box::new(self)),
         }
     }
 }

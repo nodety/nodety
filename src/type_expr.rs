@@ -5,6 +5,7 @@ use crate::{
     r#type::Type,
     type_expr::{
         conditional::Conditional,
+        mapped::Mapped,
         node_signature::{
             CyclicReferenceError, NodeSignature, port_types::PortTypes, type_parameters::TypeParameters,
             validate_type_parameters,
@@ -37,6 +38,7 @@ pub mod conversions;
 pub mod index;
 pub mod intersections;
 pub mod keyof;
+pub mod mapped;
 pub mod node_signature;
 pub mod normalization;
 pub mod readonly;
@@ -143,6 +145,9 @@ pub enum TypeExpr<T: Type, R: TypeRef = ParamRef> {
         lower: Box<TypeExpr<T, R>>,
         upper: Box<TypeExpr<T, R>>,
     },
+    /// `{[K in keyof source]: value}`: the fields of `source`, each mapped to `value`.
+    /// See [Mapped].
+    Mapped(Box<Mapped<T, R>>),
 
     /// The universal supertype encompassing all types — and the bane of every linter.
     #[default]
@@ -186,6 +191,12 @@ impl<T: Type, R: TypeRef> From<PortTypes<T, R>> for TypeExpr<T, R> {
 impl<T: Type, R: TypeRef> From<Conditional<T, R>> for TypeExpr<T, R> {
     fn from(conditional: Conditional<T, R>) -> Self {
         TypeExpr::Conditional(Box::new(conditional))
+    }
+}
+
+impl<T: Type, R: TypeRef> From<Mapped<T, R>> for TypeExpr<T, R> {
+    fn from(mapped: Mapped<T, R>) -> Self {
+        TypeExpr::Mapped(Box::new(mapped))
     }
 }
 
@@ -333,6 +344,7 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
             Self::Readonly(expr) => expr.is_never(scope),
             Self::Conditional(conditional) => conditional.distribute(scope)?.is_never(scope),
             Self::Bounded { upper, .. } => upper.is_never(scope),
+            Self::Mapped(mapped) => mapped.evaluate(scope)?.is_never(scope),
             Self::Ref(r) => match r.view() {
                 ScopedRefView::Param(ParamRef { param_id, .. }) => {
                     let (registered, param_scope) = scope.lookup(param_id)?;
@@ -390,6 +402,7 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
 
             Self::Conditional(conditional) => conditional.distribute(scope)?.is_any(scope),
             Self::Bounded { upper, .. } => upper.is_any(scope),
+            Self::Mapped(mapped) => mapped.evaluate(scope)?.is_any(scope),
 
             Self::Ref(r) => match r.view() {
                 ScopedRefView::Param(ParamRef { param_id, .. }) => {

@@ -95,6 +95,13 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
             expr.traverse_mut(
                 &expr_scope,
                 &mut |expr, traversal_scope, _is_tl_union| {
+                    // Like `traverse`, walk a mapped type as what it evaluates to, so that its key parameter
+                    // doesn't count as referenced.
+                    if let Self::Mapped(mapped) = expr
+                        && let Some(evaluated) = mapped.evaluate(traversal_scope)
+                    {
+                        *expr = evaluated;
+                    }
                     let Some(param) = expr.as_param() else { return };
                     let Some(param_scope) = traversal_scope.lookup_scope(&param.param_id) else {
                         visit(None);
@@ -200,6 +207,12 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                 conditional.t_else.traverse_mut(&scope, walker, false);
             }
 
+            Self::Mapped(mapped) => {
+                let value_scope = mapped.value_scope(&scope, None);
+                mapped.source.traverse_mut(&scope, walker, false);
+                mapped.value.traverse_mut(&value_scope, walker, false);
+            }
+
             Self::Any => (),
             Self::Never => (),
         }
@@ -278,6 +291,16 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                 conditional.t_then.traverse(&scope, walker, false);
                 conditional.t_else.traverse(&scope, walker, false);
             }
+
+            // Like inferred parameters, a mapped type whose source is known is visited as what it stands for.
+            // Otherwise its key parameter would count as uninferred.
+            Self::Mapped(mapped) => match mapped.evaluate(&scope) {
+                Some(evaluated) => evaluated.traverse(&scope, walker, is_top_level_union),
+                None => {
+                    mapped.source.traverse(&scope, walker, false);
+                    mapped.value.traverse(&mapped.value_scope(&scope, None), walker, false);
+                }
+            },
 
             Self::Any => (),
             Self::Never => (),
@@ -564,6 +587,34 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                     return;
                 };
                 own.traverse_parallel(&distributed, &own_scope, &other_scope, infer_other, variance, walker)
+            }
+
+            (Self::Mapped(own_mapped), other) => match own_mapped.evaluate(&own_scope) {
+                Some(evaluated) => {
+                    evaluated.traverse_parallel(other, &own_scope, &other_scope, infer_other, variance, walker)
+                }
+                // The keys of the source are the keys of `other`. If the mapped values don't depend on the source,
+                // nothing else is known about it, so `other` is the best guess for the source.
+                None => {
+                    if let Some(source_param) = own_mapped.source.as_param()
+                        && !own_mapped.value.contains_specific_type_param(&source_param.param_id)
+                    {
+                        own_mapped.source.traverse_parallel(
+                            other,
+                            &own_scope,
+                            &other_scope,
+                            infer_other,
+                            Variance::Covariant,
+                            walker,
+                        );
+                    }
+                }
+            },
+            (own, Self::Mapped(other_mapped)) => {
+                let Some(evaluated) = other_mapped.evaluate(&other_scope) else {
+                    return;
+                };
+                own.traverse_parallel(&evaluated, &own_scope, &other_scope, infer_other, variance, walker)
             }
 
             (Self::Any | Self::Never, _) => (),

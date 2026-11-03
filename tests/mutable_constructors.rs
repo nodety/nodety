@@ -10,7 +10,7 @@ use nodety::{
     inference::{InferenceConfig, Scopes},
     scope::{LocalParamID, Scope, ScopePointer},
     type_expr::{
-        ScopedTypeExpr,
+        ScopedTypeExpr, TypeExpr,
         subtyping::{NoSupertypeLayerReason, SupertypeResult},
     },
     validation::{GraphLocation, ValidationError, ValidationErrorKind},
@@ -22,7 +22,13 @@ mod common;
 
 #[test]
 fn notation_roundtrip() {
-    for notation in ["MutableArray<Integer>", "mut {a: Integer, b: MutableArray}", "readonly T", "Array<readonly T>"] {
+    for notation in [
+        "MutableArray<Integer>",
+        "mut {a: Integer, b: MutableArray}",
+        "readonly T",
+        "Array<readonly T>",
+        "readonly {[K in keyof T]: T[K]}",
+    ] {
         assert_eq!(expr_u(notation).to_string(), notation);
     }
 }
@@ -193,4 +199,18 @@ fn infer(signatures: Vec<&str>) -> (Nodety<DemoType>, Scopes<DemoType>) {
 fn inferred(scopes: &Scopes<DemoType>, node: usize, param: char) -> ScopedTypeExpr<DemoType> {
     let (inferred, scope) = scopes[&NodeIndex::new(node)].lookup_inferred(&LocalParamID::from(param)).unwrap();
     inferred.normalize(&scope)
+}
+
+/// A mapped type keeps the constructor of its source, so it maps a mutable record to a mutable record, and
+/// `readonly` evaluates it once its source is known.
+#[test]
+fn readonly_of_mapped_type() {
+    assert_eq!(expr("{[K in keyof mut {a: Integer}]: String}").normalize_naive(), expr("mut {a: String}"));
+    assert_eq!(expr("readonly {[K in keyof mut {a: Integer}]: MutableArray}").normalize_naive(), expr("{a: Array}"));
+
+    let scope = ScopePointer::new(Scope::from_str("<T>").unwrap());
+    let readonly = expr("readonly {[K in keyof T]: T[K]}");
+    assert_matches!(readonly.normalize(&scope), TypeExpr::Readonly(_));
+    scope.infer(&LocalParamID::from('T'), expr("mut {a: MutableArray<Integer>}"), ScopePointer::new_root()).unwrap();
+    assert_eq!(readonly.normalize(&scope), expr("{a: Array<Integer>}"));
 }
