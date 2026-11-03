@@ -7,6 +7,7 @@ use std::{
     borrow::Cow,
     cell::RefCell,
     collections::HashMap,
+    fmt::{self, Debug},
     hash::{DefaultHasher, Hash, Hasher},
     ops::Deref,
     rc::Rc,
@@ -83,8 +84,16 @@ impl<T: Type> Hash for GlobalParameterId<T> {
 /// **Equality is by pointer identity**, not structural comparison.
 /// Two `ScopePointer`s are equal only if they point to the exact same
 /// allocation.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ScopePointer<T: Type>(Rc<Scope<T>>);
+
+/// Only the address: scopes can reach each other in a cycle (a parameter inferred to a type of a child scope), so
+/// following the pointer would never end. Format the [`Scope`] itself to see its parameters.
+impl<T: Type> Debug for ScopePointer<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ScopePointer({:p})", Rc::as_ptr(&self.0))
+    }
+}
 
 impl<T: Type> Deref for ScopePointer<T> {
     type Target = Scope<T>;
