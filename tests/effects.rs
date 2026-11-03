@@ -251,3 +251,124 @@ fn uninferred_effects_are_reported() {
             if *node_idx == node.index()
     );
 }
+
+/// A handled effect with a parameter, like a disqualification `{key: 'dns', row: R}` with the rows `R` as payload:
+/// `R` gets the rows of the matching arms of the children, the other arms stay effects of the parent.
+#[test]
+fn handled_effects_infer_their_parameters() {
+    let mut nodety = Nodety::<DemoType>::new();
+    let group = nodety.add_node(sig_u("<E, R>() -> (Array<R>) effects <E> handles <{key: 'dns', row: R}>")).unwrap();
+    let both = "() -> () effects <{key: 'dns', row: {a: Integer}}> <{key: 'dnf', row: {b: String}}>";
+    nodety.add_node(Node::new_child(sig_u(both), group)).unwrap();
+    nodety.add_node(Node::new_child(sig_u("() -> () effects <{key: 'dns', row: {c: Boolean}}>"), group)).unwrap();
+
+    let scopes = nodety.infer(&InferenceConfig::default());
+
+    let rows = inferred(&scopes, group, "R");
+    let root = ScopePointer::new_root();
+    assert!(rows.supertype_of(&expr("{a: Integer} | {c: Boolean}"), &root, &root).is_supertype(), "{rows:?}");
+    assert!(expr("{a: Integer} | {c: Boolean}").supertype_of(&rows, &root, &root).is_supertype(), "{rows:?}");
+    let effects = inferred(&scopes, group, "E");
+    assert!(effects.supertype_of(&expr("{key: 'dnf', row: {b: String}}"), &root, &root).is_supertype(), "{effects:?}");
+    assert!(expr("{key: 'dnf', row: {b: String}}").supertype_of(&effects, &root, &root).is_supertype(), "{effects:?}");
+    assert_eq!(nodety.validate(&scopes), []);
+}
+
+#[test]
+fn every_handled_arm_infers_its_own_parameters() {
+    let mut nodety = Nodety::<DemoType>::new();
+    let group = nodety
+        .add_node(sig_u(
+            "<E, R, S>() -> (Array<R>, Array<S>) effects <E> handles <{key: 'dns', row: R}> <{key: 'dnf', row: S}>",
+        ))
+        .unwrap();
+    let both = "() -> () effects <{key: 'dns', row: {a: Integer}}> <{key: 'dnf', row: {b: String}}>";
+    nodety.add_node(Node::new_child(sig_u(both), group)).unwrap();
+
+    let scopes = nodety.infer(&InferenceConfig::default());
+
+    assert_eq!(inferred(&scopes, group, "R"), expr("{a: Integer}"));
+    assert_eq!(inferred(&scopes, group, "S"), expr("{b: String}"));
+    assert_eq!(inferred(&scopes, group, "E"), expr("Never"));
+    assert_eq!(nodety.validate(&scopes), []);
+}
+
+/// A parameter as the whole handled effect handles everything its children have.
+#[test]
+fn a_handled_parameter_takes_every_effect() {
+    let mut nodety = Nodety::<DemoType>::new();
+    let group = nodety.add_node(sig_u("<E, H>() -> () effects <E> handles <H>")).unwrap();
+    nodety.add_node(Node::new_child(sig_u("() -> () effects <Nondeterministic> <Fallible>"), group)).unwrap();
+
+    let scopes = nodety.infer(&InferenceConfig::default());
+
+    let handled = inferred(&scopes, group, "H");
+    let root = ScopePointer::new_root();
+    assert!(handled.supertype_of(&expr("Nondeterministic | Fallible"), &root, &root).is_supertype(), "{handled:?}");
+    assert_eq!(inferred(&scopes, group, "E"), expr("Never"));
+    assert_eq!(nodety.validate(&scopes), []);
+}
+
+/// A constructor whose concrete parameters rule the other one out gives none of its parameters a candidate.
+#[test]
+#[allow(clippy::mutable_key_type)] // GlobalParameterId is keyed by scope identity, see lib.rs.
+fn a_mismatching_constructor_gives_no_candidates() {
+    let mut scope = nodety::scope::Scope::new_root();
+    scope.define("R".into(), Default::default());
+    let scope = ScopePointer::new(scope);
+    let root = ScopePointer::new_root();
+    let pattern = expr("{key: 'dns', row: R}");
+
+    let foreign = pattern.collect_candidates(&expr("{key: 'dnf', row: {b: String}}"), &scope, &root, false, false);
+    assert!(foreign.is_empty(), "{foreign:?}");
+    let matching = pattern.collect_candidates(&expr("{key: 'dns', row: {a: Integer}}"), &scope, &root, false, false);
+    assert_eq!(matching.len(), 1);
+}
+
+/// Below a parent that bounds its effects, a handled effect with a parameter that no child matches doesn't hide the
+/// effects that escape: they are effects of the group, which validation then reports.
+#[test]
+fn escaping_effects_of_a_group_with_a_handled_parameter_stay_its_effects() {
+    let mut nodety = Nodety::<DemoType>::new();
+    let root = nodety.add_node(sig_u("() -> () effects <Nondeterministic>")).unwrap();
+    let group = nodety
+        .add_node(Node::new_child(
+            sig_u("<R extends {} = {}, E = Never>() -> (Array<R>) effects <E> handles <{key: 'other', row: R}>"),
+            root,
+        ))
+        .unwrap();
+    let throwing = "() -> () effects <Nondeterministic> <{key: 'dns', row: {a: Integer}}>";
+    nodety.add_node(Node::new_child(sig_u(throwing), group)).unwrap();
+
+    let scopes = nodety.infer(&InferenceConfig::default());
+
+    let effects = inferred(&scopes, group, "E");
+    let root_scope = ScopePointer::new_root();
+    let escaping = expr("Nondeterministic | {key: 'dns', row: {a: Integer}}");
+    assert!(effects.supertype_of(&escaping, &root_scope, &root_scope).is_supertype(), "{effects:?}");
+    assert_matches!(
+        &nodety.validate(&scopes)[..],
+        [ValidationError { location: GraphLocation::Node { node_idx }, kind: ValidationErrorKind::UnhandledEffects(_) }]
+            if *node_idx == group.index()
+    );
+}
+
+#[test]
+fn a_handled_parameter_infers_below_a_bounding_parent() {
+    let mut nodety = Nodety::<DemoType>::new();
+    let root = nodety.add_node(sig_u("() -> () effects <Nondeterministic>")).unwrap();
+    let group = nodety
+        .add_node(Node::new_child(
+            sig_u("<R extends {} = {}, E = Never>() -> (Array<R>) effects <E> handles <{key: 'dns', row: R}>"),
+            root,
+        ))
+        .unwrap();
+    let throwing = "() -> () effects <Nondeterministic> <{key: 'dns', row: {a: Integer}}>";
+    nodety.add_node(Node::new_child(sig_u(throwing), group)).unwrap();
+
+    let scopes = nodety.infer(&InferenceConfig::default());
+
+    assert_eq!(inferred(&scopes, group, "R"), expr("{a: Integer}"));
+    assert_eq!(inferred(&scopes, group, "E"), expr("Nondeterministic"));
+    assert_eq!(nodety.validate(&scopes), []);
+}
