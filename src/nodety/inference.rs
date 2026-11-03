@@ -516,6 +516,29 @@ impl<T: Type> Nodety<T> {
             }
         }
 
+        // Effects are the least solution: a node's effects and what it handles start at `Never`, and the other candidates
+        // (children, inputs) get unioned with it. Without this, the effects of a node without effectful children only
+        // got inferred from its parent's effects and handles, which may themselves wait on this node.
+        for (node_idx, node) in self.program.node_references() {
+            let Some(scope) = scopes.get(&node_idx) else { continue };
+            for target in [&node.signature.effects, &node.signature.handles] {
+                let target = target.clone().into_scoped();
+                if !target.contains_type_param() {
+                    continue;
+                }
+                flows.push(FlowWithMetadata {
+                    flow: Flow {
+                        source: TypeExpr::Never,
+                        target,
+                        source_scope: ScopePointer::clone(scope),
+                        target_scope: ScopePointer::clone(scope),
+                    },
+                    source_location: FlowSourceLocation::Effects(node_idx),
+                    target_location: FlowTargetLocation::Effects(node_idx),
+                });
+            }
+        }
+
         // The effects of children that their parent doesn't handle become effects of the parent. Those it handles infer
         // the parameters of its `handles`: the rows `R` of a handled `Dq<'k', R>` are those its children throw.
         for (node_idx, node) in self.program.node_references() {

@@ -225,31 +225,48 @@ fn nodes_without_parent_are_bounded_on_request() {
     );
 }
 
-/// Without anything else to infer it from, an effect variable of a child takes what its parent allows.
+/// Effects are the least solution: an effect variable without anything to infer it from has no effects, whatever its
+/// parent allows.
 #[test]
-fn effects_of_a_child_get_inferred_from_the_parent() {
+fn effects_without_sources_are_never() {
     let mut nodety = Nodety::<DemoType>::new();
     let parent = nodety.add_node(sig_u("() -> () effects <Nondeterministic>")).unwrap();
     let child = nodety.add_node(Node::new_child(sig_u("<E>() -> () effects <E>"), parent)).unwrap();
 
     let scopes = nodety.infer(&InferenceConfig::default());
 
-    assert_eq!(inferred(&scopes, child, "E"), expr("Nondeterministic"));
+    assert_eq!(inferred(&scopes, child, "E"), expr("Never"));
     assert_eq!(nodety.validate(&scopes), []);
 }
 
 #[test]
-fn uninferred_effects_are_reported() {
+fn effects_without_sources_satisfy_any_effect_bound() {
     let mut nodety = Nodety::<DemoType>::new();
     let node = nodety.add_node(sig_u("<E>() -> () effects <E>")).unwrap();
     let scopes = nodety.infer(&InferenceConfig::default());
 
-    assert_eq!(nodety.validate(&scopes), []);
-    assert_matches!(
-        &nodety.validate_with_effect_bound(&scopes, &TypeExpr::Never)[..],
-        [ValidationError { location: GraphLocation::Node { node_idx }, kind: ValidationErrorKind::InsufficientlyInferredTypes }]
-            if *node_idx == node.index()
-    );
+    assert_eq!(inferred(&scopes, node, "E"), expr("Never"));
+    assert_eq!(nodety.validate_with_effect_bound(&scopes, &TypeExpr::Never), []);
+}
+
+/// Nodes that handle something, nested in each other without effectful children: their effects and handled
+/// parameters don't wait on each other.
+#[test]
+fn nested_handlers_without_effectful_children_have_no_effects() {
+    for signature in
+        ["<N, Q extends Fallible>() -> () effects <N> handles <Q>", "<N>() -> () effects <N> handles <Fallible>"]
+    {
+        let mut nodety = Nodety::<DemoType>::new();
+        let root = nodety.add_node(sig_u("() -> ()")).unwrap();
+        let outer = nodety.add_node(Node::new_child(sig_u(signature), root)).unwrap();
+        let inner = nodety.add_node(Node::new_child(sig_u(signature), outer)).unwrap();
+
+        let scopes = nodety.infer(&InferenceConfig::default());
+
+        assert_eq!(inferred(&scopes, inner, "N"), expr("Never"), "{signature}");
+        assert_eq!(inferred(&scopes, outer, "N"), expr("Never"), "{signature}");
+        assert_eq!(nodety.validate(&scopes), [], "{signature}");
+    }
 }
 
 /// A handled effect with a parameter, like a disqualification `{key: 'dns', row: R}` with the rows `R` as payload:
