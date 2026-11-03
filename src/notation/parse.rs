@@ -26,7 +26,7 @@ use nom::{
     branch::alt,
     bytes::complete::{is_not, tag},
     character::complete::{alpha1, alphanumeric1, char, digit1, multispace0, multispace1, space0, space1},
-    combinator::{map, opt, recognize, value},
+    combinator::{map, not, opt, recognize, value},
     error::ParseError as NomParseError,
     multi::{many0, separated_list0, separated_list1},
     number::complete::double,
@@ -280,16 +280,19 @@ fn parse_type_parameter_declaration<T: ParsableType, R: ParamTypeRef>(
     input: &str,
 ) -> IResult<&str, (LocalParamID, TypeParameter<T, R>)> {
     (
+        // `rigid` followed by a parameter, so that a parameter named `rigid` still parses.
+        opt((tag("rigid"), space1, not(alt((tag("extends"), tag("=")))))),
         parse_type_parameter,
         opt((space1, tag("extends"), space1, parse_type_expr)),
         opt((space0, tag("="), space0, parse_type_expr)),
     )
-        .map(|((param, _infer), bound, default)| {
+        .map(|(rigid, (param, _infer), bound, default)| {
             (
                 param,
                 TypeParameter {
                     bound: bound.map(|(_, _, _, bound)| bound),
                     default: default.map(|(_, _, _, default)| default),
+                    rigid: rigid.is_some(),
                 },
             )
         })
@@ -392,6 +395,9 @@ impl ParsableType for DemoType {
             value(TypeExpr::Type(DemoType::AnySI), tag("AnySI")),
             value(TypeExpr::Type(DemoType::Nondeterministic), tag("Nondeterministic")),
             value(TypeExpr::Type(DemoType::Fallible), tag("Fallible")),
+            recognize((opt(char('-')), digit1))
+                .map_res(str::parse)
+                .map(|literal| TypeExpr::Type(DemoType::IntegerLiteral(literal))),
             parse_quoted_string.map(|s| TypeExpr::Type(DemoType::String(Some(s)))),
             map(parse_si_unit, |(unit, scale)| TypeExpr::Type(DemoType::SI(unit, scale))),
             parse_array,
@@ -401,7 +407,13 @@ impl ParsableType for DemoType {
     }
 
     fn parse_operator(input: &str) -> IResult<&str, Self::Operator> {
-        alt((value(DemoOperator::Multiplication, char('*')), value(DemoOperator::Division, char('/')))).parse(input)
+        alt((
+            value(DemoOperator::Multiplication, char('*')),
+            value(DemoOperator::Division, char('/')),
+            value(DemoOperator::Addition, char('+')),
+            value(DemoOperator::Subtraction, char('-')),
+        ))
+        .parse(input)
     }
 }
 

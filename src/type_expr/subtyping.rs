@@ -2,7 +2,8 @@ use crate::{
     scope::ScopePointer,
     r#type::Type,
     type_expr::{
-        AsScopedRef, ErasedScopedTypeRef, NoRef, ParamRef, ScopedRefView, ScopedTypeExpr, ScopedTypeRef, TypeExpr,
+        AsScopedRef, ErasedScopedTypeRef, LinearForm, NoRef, ParamRef, ScopedRefView, ScopedTypeExpr, ScopedTypeRef,
+        TypeExpr,
     },
 };
 use std::fmt::Debug;
@@ -298,6 +299,10 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
         // Use the parent to infer the child's types.
         let (child, child_scope) = child.build_inferred_child_scope(parent.as_ref(), child_scope, &parent_scope);
 
+        if let Some(parent_form) = parent.rigid_linear_form(&parent_scope) {
+            return rigid_supertype_of::<T, D, R, R2>(&parent_form, parent.as_ref(), child.as_ref(), &child_scope);
+        }
+
         match (parent.as_ref(), child.as_ref()) {
             // A bounded child behaves like its upper bound. First so that a bounded parent compares
             // against it.
@@ -389,9 +394,10 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 )
             }
 
+            // A rigid parameter in the child is its bound.
             (parent, TypeExpr::Operation { a, b, operator }) => {
-                let a_normalized = a.normalize_concrete(&child_scope).ok_or(Unknown)?;
-                let b_normalized = b.normalize_concrete(&child_scope).ok_or(Unknown)?;
+                let a_normalized = a.normalize_concrete_widened(&child_scope).ok_or(Unknown)?;
+                let b_normalized = b.normalize_concrete_widened(&child_scope).ok_or(Unknown)?;
                 parent.supertype_of_impl::<D, NoRef>(
                     &T::operation(&a_normalized, operator, &b_normalized),
                     &parent_scope,
@@ -787,8 +793,74 @@ fn child_param_supertype_of<T: Type, D: SupertypeDiagnostics<T>, Rp: AsScopedRef
             .map_err(|e| e.map_unrelated(|d| d.add_layer(parent, child, None)))
     } else {
         let (child_boundary, child_boundary_scope) = child_registered.get_boundary(child_param_scope);
-        parent
-            .supertype_of_impl::<D, ScopedTypeRef<T>>(child_boundary.as_ref(), parent_scope, &child_boundary_scope)
-            .map_err(|_| Unknown)
+        let result = parent.supertype_of_impl::<D, ScopedTypeRef<T>>(
+            child_boundary.as_ref(),
+            parent_scope,
+            &child_boundary_scope,
+        );
+        if child_registered.is_rigid() {
+            // A union parent may have the rigid parameter itself as an arm, which its bound wouldn't match.
+            if result.is_err()
+                && let TypeExpr::Union(parent_a, parent_b) = parent
+                && [parent_a, parent_b]
+                    .into_iter()
+                    .any(|arm| arm.supertype_of_impl::<D, Rc>(child, parent_scope, child_scope).is_ok())
+            {
+                return Ok(());
+            }
+            // A rigid parameter is its bound, so the result is final.
+            return result.map_err(|e| e.map_unrelated(|d| d.add_layer(parent, child, None)));
+        }
+        result.map_err(|_| Unknown)
+    }
+}
+
+/// `parent` has the linear form `parent_form` with at least one rigid term: it is a supertype only of children with
+/// the same terms (and a narrower constant) and of `Never`.
+fn rigid_supertype_of<T: Type, D: SupertypeDiagnostics<T>, Rp: AsScopedRef<T>, Rc: AsScopedRef<T>>(
+    parent_form: &LinearForm<T>,
+    parent: &TypeExpr<T, Rp>,
+    child: &TypeExpr<T, Rc>,
+    child_scope: &ScopePointer<T>,
+) -> Result<(), NoSupertypeReason<D>> {
+    use NoSupertypeReason::*;
+    match child {
+        TypeExpr::Never => return Ok(()),
+        TypeExpr::Bounded { upper, .. } => return rigid_supertype_of(parent_form, parent, upper.as_ref(), child_scope),
+        TypeExpr::Union(a, b) => {
+            return match (
+                rigid_supertype_of::<T, D, Rp, Rc>(parent_form, parent, a, child_scope),
+                rigid_supertype_of::<T, D, Rp, Rc>(parent_form, parent, b, child_scope),
+            ) {
+                (Ok(()), Ok(())) => Ok(()),
+                (_, Err(Unknown)) | (Err(Unknown), _) => Err(Unknown),
+                (_, Err(Unrelated(e))) | (Err(Unrelated(e)), _) => Err(Unrelated(e.add_layer(parent, child, None))),
+            };
+        }
+        TypeExpr::Ref(r) => match r.view() {
+            ScopedRefView::ScopedExpr { expr, scope } => return rigid_supertype_of(parent_form, parent, expr, scope),
+            ScopedRefView::Param(param) => {
+                if let Some((inferred, inferred_scope)) = child_scope.lookup_inferred(&param.param_id) {
+                    return rigid_supertype_of(parent_form, parent, &inferred, &inferred_scope);
+                }
+            }
+        },
+        // Computed types that may compute to a union or to an expression over rigid parameters.
+        TypeExpr::Intersection(..)
+        | TypeExpr::Conditional(_)
+        | TypeExpr::Index { .. }
+        | TypeExpr::KeyOf(_)
+        | TypeExpr::Mapped(_) => {
+            let normalized = child.normalize(child_scope);
+            if std::mem::discriminant(&normalized) != std::mem::discriminant(&child.clone().into_scoped()) {
+                return rigid_supertype_of(parent_form, parent, &normalized, child_scope);
+            }
+        }
+        _ => (),
+    }
+    match child.linear_form(child_scope) {
+        Some(child_form) if parent_form.supertype_of(&child_form) => Ok(()),
+        None if child.clone().into_scoped().contains_uninferred(child_scope) => Err(Unknown),
+        _ => Err(Unrelated(D::new(parent, child, None))),
     }
 }

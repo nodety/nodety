@@ -30,6 +30,13 @@ pub struct TypeParameter<T: Type, R: TypeRef = ParamRef> {
     pub bound: Option<TypeExpr<T, R>>,
     /// Default when not inferred (e.g. `T = Any`).
     pub default: Option<TypeExpr<T, R>>,
+    /// A rigid parameter (`<rigid T>`) is never inferred: it stands for one fixed but unknown type within its bound,
+    /// as the parameters of a generic function do while its body gets checked.
+    ///
+    /// As a child it is its bound. As a parent it is a supertype only of itself and `Never` (and, with
+    /// [Type::linear_arithmetic](crate::Type::linear_arithmetic), of operations that are linearly equal to it).
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "std::ops::Not::not"))]
+    pub rigid: bool,
 }
 
 impl<T: Type, R: AsScopedRef<T>> TypeParameter<T, R> {
@@ -38,12 +45,13 @@ impl<T: Type, R: AsScopedRef<T>> TypeParameter<T, R> {
         TypeParameter {
             bound: self.bound.clone().map(|bound| bound.normalize(scope)),
             default: self.default.clone().map(|default| default.normalize(scope)),
+            rigid: self.rigid,
         }
     }
 }
 
 impl<T: Type, R: TypeRef> Default for TypeParameter<T, R> {
     fn default() -> Self {
-        Self { bound: None, default: None }
+        Self { bound: None, default: None, rigid: false }
     }
 }

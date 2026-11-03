@@ -1,4 +1,6 @@
-use crate::type_expr::{ConcreteTypeExpr, ConstructorParams, TypeExpr, TypeRef, node_signature::NodeSignature};
+use crate::type_expr::{
+    ConcreteTypeExpr, ConstructorParams, LinearArithmetic, TypeExpr, TypeRef, node_signature::NodeSignature,
+};
 use std::{fmt::Debug, hash::Hash};
 
 #[cfg(feature = "json-schema")]
@@ -147,6 +149,20 @@ pub trait Type: Sized + Clone + Debug + PartialEq {
         _b: &ConcreteTypeExpr<Self>,
     ) -> ConcreteTypeExpr<Self> {
         TypeExpr::Never
+    }
+
+    /// The operators of [Type::operation] that add and subtract, and the neutral element of adding.
+    ///
+    /// With them, operations over rigid type parameters (see
+    /// [TypeParameter::rigid](crate::scope::type_parameter::TypeParameter::rigid)) are compared in the
+    /// [LinearForm](crate::type_expr::LinearForm) `Σ coefficient · parameter + constant`: `N + 1` is a supertype of
+    /// `1 + N` and `(N + 3) - 2`, but not of `N + 2` or `3`. Constants are computed with [Type::operation].
+    /// Without them, comparing an operation over a rigid parameter as a parent stays [Unknown](crate::type_expr::subtyping::SupertypeResult::Unknown).
+    ///
+    /// As a child, a rigid parameter in an operation is replaced by its bound, which assumes that
+    /// [Type::operation] is monotone: a wider operand never gives a narrower result.
+    fn linear_arithmetic() -> Option<LinearArithmetic<Self>> {
+        None
     }
 
     /// Used to evaluate keyof expressions.

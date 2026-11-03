@@ -315,7 +315,9 @@ fn awaited_params<T: Type>(
             let Some(param_scope) = traverse_scope.lookup_scope(param_id) else {
                 return;
             };
-            if param_scope.is_inferred(param_id) || !node_scopes.contains(&param_scope) {
+            if param_scope.lookup(param_id).is_some_and(|(var, _)| !var.is_uninferred())
+                || !node_scopes.contains(&param_scope)
+            {
                 return;
             }
             let global_id = GlobalParameterId { scope: param_scope, local_id: *param_id };

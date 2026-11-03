@@ -3,7 +3,7 @@
 //! But it also serves as reference implementation of the Type trait.
 use crate::{
     r#type::Type,
-    type_expr::{ConcreteTypeExpr, ConstructorParams, TypeExpr, TypeRef},
+    type_expr::{ConcreteTypeExpr, ConstructorParams, LinearArithmetic, TypeExpr, TypeRef},
 };
 #[cfg(feature = "json-schema")]
 use schemars::JsonSchema;
@@ -58,6 +58,8 @@ impl SIUnit {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DemoType {
     Integer,
+    /// An integer literal like `3`, a subtype of `Integer`.
+    IntegerLiteral(i64),
     Float,
     /// Some if representing a string literal like 'hello', None if representing the string type.
     String(Option<String>),
@@ -83,6 +85,8 @@ pub enum DemoType {
 pub enum DemoOperator {
     Multiplication,
     Division,
+    Addition,
+    Subtraction,
 }
 
 impl Type for DemoType {
@@ -91,6 +95,7 @@ impl Type for DemoType {
     fn common_supertype(&self, other: &Self) -> Option<Self> {
         match (self, other) {
             (Self::String(_), Self::String(_)) => Some(Self::String(None)),
+            (Self::Integer | Self::IntegerLiteral(_), Self::Integer | Self::IntegerLiteral(_)) => Some(Self::Integer),
             _ => None,
         }
     }
@@ -101,7 +106,8 @@ impl Type for DemoType {
             (Self::Unit, Self::Unit) => true,
 
             // Numbers
-            (Self::Integer, Self::Integer) => true,
+            (Self::Integer, Self::Integer | Self::IntegerLiteral(_)) => true,
+            (Self::IntegerLiteral(a), Self::IntegerLiteral(b)) => a == b,
             (Self::Float, Self::Float) => true,
 
             // Strings
@@ -115,7 +121,7 @@ impl Type for DemoType {
             (Self::Array, Self::Array) => true,
 
             // Interfaces
-            (Self::Comparable, Self::Comparable | Self::Integer | Self::Float) => true,
+            (Self::Comparable, Self::Comparable | Self::Integer | Self::IntegerLiteral(_) | Self::Float) => true,
             (Self::Countable, Self::Countable | Self::Array | Self::Record) => true,
             (Self::Sortable, Self::Sortable) => true,
 
@@ -143,6 +149,20 @@ impl Type for DemoType {
             ) => TypeExpr::Type(Self::SI(a.multiply(b), a_scale * b_scale)),
             (TypeExpr::Type(Self::SI(a, a_scale)), DemoOperator::Division, TypeExpr::Type(Self::SI(b, b_scale))) => {
                 TypeExpr::Type(Self::SI(a.divide(b), a_scale / b_scale))
+            }
+            (
+                TypeExpr::Type(a @ (Self::Integer | Self::IntegerLiteral(_))),
+                DemoOperator::Addition | DemoOperator::Subtraction,
+                TypeExpr::Type(b @ (Self::Integer | Self::IntegerLiteral(_))),
+            ) => {
+                let result = match (a, b) {
+                    (Self::IntegerLiteral(a), Self::IntegerLiteral(b)) if *operator == DemoOperator::Addition => {
+                        a.checked_add(*b)
+                    }
+                    (Self::IntegerLiteral(a), Self::IntegerLiteral(b)) => a.checked_sub(*b),
+                    _ => None,
+                };
+                TypeExpr::Type(result.map_or(Self::Integer, Self::IntegerLiteral))
             }
             _ => TypeExpr::Never,
         }
@@ -214,6 +234,14 @@ impl Type for DemoType {
             }
             _ => TypeExpr::Any,
         }
+    }
+
+    fn linear_arithmetic() -> Option<LinearArithmetic<Self>> {
+        Some(LinearArithmetic {
+            add: DemoOperator::Addition,
+            subtract: DemoOperator::Subtraction,
+            zero: TypeExpr::Type(Self::IntegerLiteral(0)),
+        })
     }
 
     fn optional_in_constructor(&self) -> bool {

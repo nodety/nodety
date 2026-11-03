@@ -52,8 +52,8 @@ impl<T: Type> ScopedTypeExpr<T> {
                 let Some(param_scope) = own_traversal_scope.lookup_scope(&own_param.param_id) else {
                     return;
                 };
-                if param_scope.is_inferred(&own_param.param_id) {
-                    // Don't collect candidates for already inferred parameters.
+                if param_scope.lookup(&own_param.param_id).is_some_and(|(var, _)| !var.is_uninferred()) {
+                    // Don't collect candidates for already inferred or rigid parameters.
                     return;
                 }
                 let global_id = GlobalParameterId { scope: param_scope, local_id: own_param.param_id };
