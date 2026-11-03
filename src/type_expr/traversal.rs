@@ -127,6 +127,8 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
             Self::NodeSignature(sig) => {
                 sig.inputs.traverse_mut(&scope, walker, false);
                 sig.outputs.traverse_mut(&scope, walker, false);
+                sig.effects.traverse_mut(&scope, walker, false);
+                sig.handles.traverse_mut(&scope, walker, false);
                 sig.parameters
                     .values_mut()
                     .flat_map(|param| param.bound.iter_mut().chain(param.default.iter_mut()))
@@ -210,6 +212,8 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
             Self::NodeSignature(sig) => {
                 sig.inputs.traverse(&scope, walker, false);
                 sig.outputs.traverse(&scope, walker, false);
+                sig.effects.traverse(&scope, walker, false);
+                sig.handles.traverse(&scope, walker, false);
                 sig.parameters
                     .values()
                     .flat_map(|param| param.bound.iter().chain(param.default.iter()))
@@ -409,6 +413,13 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                 );
                 own_signature.outputs.traverse_parallel(
                     &other_signature.outputs,
+                    &own_scope,
+                    &other_scope,
+                    infer_other,
+                    walker,
+                );
+                own_signature.effects.traverse_parallel(
+                    &other_signature.effects,
                     &own_scope,
                     &other_scope,
                     infer_other,

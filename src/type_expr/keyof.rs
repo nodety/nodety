@@ -23,10 +23,9 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 Some((inner.key_type(parameters).into(), ScopePointer::clone(scope)))
             }
 
-            // See tsReference.ts
-            // @Todo: Test this
-            // keyof (A|B) = keyof A & keyof B
-            // This is not exactly what typescript does but close enough.
+            // keyof (A | B) = keyof A | keyof B: every key some arm has, unlike typescript's keys all arms share.
+            // Indexing the union distributes over the arms (see [Self::index]), so a key an arm lacks indexes that
+            // arm as a missing field, whatever [Type::index] returns for one.
             Self::Union(a, b) => {
                 let (keyof_a, keyof_a_scope) = a.keyof(scope)?;
                 let (keyof_b, keyof_b_scope) = b.keyof(scope)?;
@@ -36,7 +35,13 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 if keyof_b.is_never_forever(&keyof_b_scope) {
                     return Some((keyof_a, keyof_a_scope));
                 }
-                TypeExpr::intersection(&keyof_a, &keyof_b, &keyof_a_scope, &keyof_b_scope)
+                Some((
+                    TypeExpr::Union(
+                        Box::new(TypeExpr::scope_portal(keyof_a, keyof_a_scope)),
+                        Box::new(TypeExpr::scope_portal(keyof_b, keyof_b_scope)),
+                    ),
+                    ScopePointer::clone(scope),
+                ))
             }
 
             // See tsReference.ts

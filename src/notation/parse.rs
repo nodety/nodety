@@ -341,15 +341,41 @@ fn parse_port_types<T: ParsableType, R: ParamTypeRef>(
 }
 
 fn parse_node_signature<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, NodeSignature<T, R>> {
-    (opt(parse_type_parameter_declarations), space0, parse_sig_input_output, ws0(tag("->")), parse_sig_input_output)
-        .map(|(params, _, (inputs, default_input_types), _, (outputs, _discarded_default_outputs))| NodeSignature {
-            parameters: params.unwrap_or_default(),
-            inputs,
-            outputs,
-            default_input_types,
-            ..Default::default()
-        })
+    (
+        opt(parse_type_parameter_declarations),
+        space0,
+        parse_sig_input_output,
+        ws0(tag("->")),
+        parse_sig_input_output,
+        opt(preceded(keyword("effects"), parse_effects)),
+        opt(preceded(keyword("handles"), parse_effects)),
+    )
+        .map(
+            |(params, _, (inputs, default_input_types), _, (outputs, _discarded_default_outputs), effects, handles)| {
+                NodeSignature {
+                    parameters: params.unwrap_or_default(),
+                    inputs,
+                    outputs,
+                    default_input_types,
+                    effects: effects.unwrap_or(TypeExpr::Never),
+                    handles: handles.unwrap_or(TypeExpr::Never),
+                }
+            },
+        )
         .parse(input)
+}
+
+/// One or more effects in angle brackets, `<A> <B>`, which is the union `A | B`.
+fn parse_effects<T: ParsableType, R: ParamTypeRef>(input: &str) -> IResult<&str, TypeExpr<T, R>> {
+    let effect = || preceded(multispace0, delimited(char('<'), ws0(parse_type_expr), char('>')));
+    let (input, first) = effect().parse(input)?;
+    fold_many0(effect(), move || first.clone(), TypeExpr::union_with).parse(input)
+}
+
+/// Whitespace around keywords is optional because they are followed by `<`. Outputs written as a bare type parameter
+/// still need a space, `() -> T effects <A>`, as `Teffects` would be one identifier.
+fn keyword<'a>(keyword: &'static str) -> impl Parser<&'a str, Output = &'a str, Error = nom::error::Error<&'a str>> {
+    preceded(multispace0, tag(keyword))
 }
 
 impl ParsableType for DemoType {
@@ -364,6 +390,8 @@ impl ParsableType for DemoType {
             value(TypeExpr::Type(DemoType::Sortable), tag("Sortable")),
             value(TypeExpr::Type(DemoType::Unit), tag("Unit")),
             value(TypeExpr::Type(DemoType::AnySI), tag("AnySI")),
+            value(TypeExpr::Type(DemoType::Nondeterministic), tag("Nondeterministic")),
+            value(TypeExpr::Type(DemoType::Fallible), tag("Fallible")),
             parse_quoted_string.map(|s| TypeExpr::Type(DemoType::String(Some(s)))),
             map(parse_si_unit, |(unit, scale)| TypeExpr::Type(DemoType::SI(unit, scale))),
             parse_array,

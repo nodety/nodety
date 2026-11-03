@@ -4,7 +4,7 @@
 
 use crate::{
     TypeExpr,
-    inference::{FlowSourceLocation, InferenceStep, Scopes, infer},
+    inference::{FlowSourceLocation, FlowTargetLocation, InferenceStep, Scopes, infer},
     nodety::{Edge, IntoNode, Node, Nodety, NodetyError, inference::InferenceConfig},
     scope::ScopePointer,
     r#type::Type,
@@ -170,11 +170,13 @@ impl<T: Type> NodetyCached<T> {
             if let TypeExpr::PortTypes(outputs) = &node_signature.signature.outputs { outputs.ports.len() } else { 0 };
 
         flows.retain(|flow| {
-            if flow.target_location.node_idx == node_idx {
+            if let FlowTargetLocation::Input { node_idx: target_idx, input_idx } = flow.target_location
+                && target_idx == node_idx
+            {
                 match exclude_input {
                     None => (),
-                    Some(ExcludePorts::Index(idx)) if idx == flow.target_location.input_idx => return false,
-                    Some(ExcludePorts::Vargs) if flow.target_location.input_idx >= min_input_ports_len => return false,
+                    Some(ExcludePorts::Index(idx)) if idx == input_idx => return false,
+                    Some(ExcludePorts::Vargs) if input_idx >= min_input_ports_len => return false,
                     _ => (),
                 };
             }

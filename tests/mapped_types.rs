@@ -189,3 +189,13 @@ fn test_passed_through_union_field_fits_a_union() {
     let (x, x_scope) = scopes.get(&NodeIndex::from(3)).unwrap().lookup_inferred(&LocalParamID::from("X")).unwrap();
     assert_eq!(x.normalize(&x_scope), expr("{a: String | Unit, b: Float}"));
 }
+
+/// A mapped type over a union evaluates to a union, so it is evaluated before a union parent splits into its arms.
+#[test]
+fn test_mapped_union_fits_a_union_parent() {
+    let root = ScopePointer::new_root();
+    let child = expr("{[K in keyof ({a: Integer} | {b: String})]: Array<K>}");
+    let parent = expr("{a: Array<'a'>} | {b: Array<'b'>}");
+    assert!(matches!(parent.supertype_of(&child, &root, &root), SupertypeResult::Supertype));
+    assert!(!matches!(expr("{a: Array<'a'>}").supertype_of(&child, &root, &root), SupertypeResult::Supertype));
+}

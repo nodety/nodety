@@ -6,7 +6,6 @@
 - Add more tests for keyof
 - Add more tests for index
 - Extract parameters from signature
-- Test tags
 - Test inferring from and to conditionals
 - Test cyclic graphs
 - Enable traverse return early?
