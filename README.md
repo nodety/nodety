@@ -14,6 +14,7 @@ Nodety was initially designed for visual node editors but it works just as well 
 - **Conditional types** — `T extends String ? String : Never`
 - **Unions & intersections** — `"a" | "b"`, `{ a: Int } & { b: String }`
 - **Keyof & index access** — `keyof { a: Int }`, `{ a: Int }["a"]`
+- **Mapped types** — `{[K in keyof T]: K extends "a" ? Bool : T[K]}` (`T` with field `a` replaced)
 - **Variadic ports (inputs & outputs)** — `(...Integer) -> (Array<Integer>)`
 - **Rank-N polymorphism** — `(<T>(T) -> (T)) -> ()`
 - **User-defined type operations** — `<A, B>(A, B) -> (A * B)` (Can be used to model calculations with SI units)

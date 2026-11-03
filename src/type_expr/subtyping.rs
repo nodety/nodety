@@ -433,6 +433,12 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 &child_scope,
             ),
 
+            (parent, TypeExpr::Mapped(mapped)) => parent.supertype_of_impl::<D, ScopedTypeRef<T>>(
+                &mapped.evaluate(&child_scope).ok_or(Unknown)?,
+                &parent_scope,
+                &child_scope,
+            ),
+
             (parent, TypeExpr::Index { expr, index }) => {
                 let (index_type, index_scope) = expr.index(index, &child_scope, &child_scope).ok_or(Unknown)?;
                 parent
@@ -487,6 +493,11 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
 
             (TypeExpr::Conditional(conditional), child) => conditional
                 .distribute(&parent_scope)
+                .ok_or(Unknown)?
+                .supertype_of_impl::<D, R2>(child, &parent_scope, &child_scope),
+
+            (TypeExpr::Mapped(mapped), child) => mapped
+                .evaluate(&parent_scope)
                 .ok_or(Unknown)?
                 .supertype_of_impl::<D, R2>(child, &parent_scope, &child_scope),
 

@@ -149,6 +149,7 @@ impl<T: Type, R: TypeRef> TypeExpr<T, R> {
                 lower: Box::new(lower.try_map_refs_mut(mapper)?),
                 upper: Box::new(upper.try_map_refs_mut(mapper)?),
             },
+            Self::Mapped(mapped) => TypeExpr::Mapped(Box::new(mapped.try_map_refs_mut(mapper)?)),
             Self::Any => TypeExpr::Any,
             Self::Never => TypeExpr::Never,
             Self::Ref(r) => TypeExpr::Ref(mapper(r)?),
