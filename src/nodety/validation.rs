@@ -4,8 +4,9 @@ use crate::nodety::inference::Scopes;
 use crate::scope::ScopePointer;
 use crate::r#type::Type;
 use crate::type_expr::{
-    ConcreteTypeExpr, TypeExpr, TypeExprValidationError,
+    ConcreteTypeExpr, ScopedTypeExpr, TypeExpr, TypeExprValidationError,
     subtyping::{DetailedSupertypeDiagnostics, SupertypeResult},
+    traversal::Variance,
 };
 use petgraph::Direction;
 use petgraph::graph::NodeIndex;
@@ -60,14 +61,18 @@ impl Default for GraphLocation {
 )]
 #[cfg_attr(feature = "tsify", derive(Tsify))]
 pub enum ValidationErrorKind<T: Type> {
-    /// The inferred type for a type parameter is no child type of the parameter bound
-    TypeParameterBoundsExceeded,
+    /// A flow gives a type parameter a type outside of the parameter's bound, so no type can be inferred for it.
+    /// The diagnostics have the bound as parent and the type the flow gives (or its arm outside of the bound) as child.
+    ///
+    /// Reported where the flow ends (an edge, or the input port of a default type) instead of
+    /// [Self::InsufficientlyInferredTypes], which stays for parameters that no flow determines.
+    TypeParameterBoundsExceeded(DetailedSupertypeDiagnostics<T>),
     MultipleEdgesOnOneInput,
     EdgeMissingOnInput,
     EdgeHasNoSourceOutput,
     /// There is a type parameter that is not yet inferred, but needed to validate a flow.
-    /// This can happen when either there is no flow to infer the parameter from or
-    /// The flows violate the parameters bounds.
+    /// This can happen when there is no flow to infer the parameter from, or the parameter's bound isn't inferred.
+    /// A flow that violates the bound is reported as [Self::TypeParameterBoundsExceeded].
     InsufficientlyInferredTypes,
     NonPortTypesIO,
     TypeExprValidationError(TypeExprValidationError),
@@ -204,7 +209,7 @@ impl<T: Type> Nodety<T> {
                 }),
                 SupertypeResult::Unknown => errors.push(ValidationError {
                     location: GraphLocation::Edge(edge.id().index()),
-                    kind: ValidationErrorKind::InsufficientlyInferredTypes,
+                    kind: unknown_flow_error(target_port, source_port, target_scope, source_scope),
                 }),
             }
         }
@@ -234,11 +239,9 @@ impl<T: Type> Nodety<T> {
                     continue;
                 };
 
-                match port_type.clone().into_scoped().supertype_of_detailed(
-                    &default_type.clone().into_scoped(),
-                    scope,
-                    scope,
-                ) {
+                let port_type = port_type.clone().into_scoped();
+                let default_type = default_type.clone().into_scoped();
+                match port_type.supertype_of_detailed(&default_type, scope, scope) {
                     SupertypeResult::Supertype => (), // all ok
                     SupertypeResult::Unrelated(d) => errors.push(ValidationError {
                         location: GraphLocation::InputPort { node_idx: node_idx.index(), input_idx: *input_idx },
@@ -246,7 +249,7 @@ impl<T: Type> Nodety<T> {
                     }),
                     SupertypeResult::Unknown => errors.push(ValidationError {
                         location: GraphLocation::InputPort { node_idx: node_idx.index(), input_idx: *input_idx },
-                        kind: ValidationErrorKind::InsufficientlyInferredTypes,
+                        kind: unknown_flow_error(&port_type, &default_type, scope, scope),
                     }),
                 }
             }
@@ -366,4 +369,45 @@ impl<T: Type> Nodety<T> {
         }
         errors
     }
+}
+
+/// The error for a flow from `source` into `target` that can't be checked because `target` references uninferred
+/// parameters.
+///
+/// Inference discards the candidates outside of a parameter's bound, so a parameter whose candidates all exceed it
+/// stays uninferred. If the flow gives such a parameter a fully inferred type from below (the parameter must be a
+/// supertype of it) that the parameter's fully inferred bound doesn't contain, no type for the parameter can make the
+/// flow valid: that is [ValidationErrorKind::TypeParameterBoundsExceeded], with the diagnostics of the normalized bound
+/// as parent and the candidate as child (like [ValidationErrorKind::TypeMismatch], for a union candidate the outermost
+/// layer names the arm outside of the bound). Otherwise the parameter may just lack a flow to infer it from:
+/// [ValidationErrorKind::InsufficientlyInferredTypes].
+fn unknown_flow_error<T: Type>(
+    target: &ScopedTypeExpr<T>,
+    source: &ScopedTypeExpr<T>,
+    target_scope: &ScopePointer<T>,
+    source_scope: &ScopePointer<T>,
+) -> ValidationErrorKind<T> {
+    for (global_id, candidates) in target.collect_candidates_in_order(source, target_scope, source_scope, false, true) {
+        let Some((var, param_scope)) = global_id.scope.lookup(&global_id.local_id) else {
+            continue;
+        };
+        let Some(bound) = &var.parameter().bound else {
+            continue;
+        };
+        if !var.is_uninferred() || bound.contains_uninferred(param_scope) {
+            continue;
+        }
+        let bound = bound.normalize(param_scope);
+        for candidate in candidates {
+            if candidate.variance != Variance::Covariant || candidate.t.contains_uninferred(&candidate.scope) {
+                continue;
+            }
+            if let SupertypeResult::Unrelated(d) =
+                bound.supertype_of_detailed(&candidate.t, param_scope, &candidate.scope)
+            {
+                return ValidationErrorKind::TypeParameterBoundsExceeded(d);
+            }
+        }
+    }
+    ValidationErrorKind::InsufficientlyInferredTypes
 }
