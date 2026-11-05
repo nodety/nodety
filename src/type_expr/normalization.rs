@@ -150,7 +150,8 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
             Self::Ref(r) => match r.view() {
                 ScopedRefView::Param(param) => {
                     if let Some((inferred, inferred_scope)) = scope.lookup_inferred(&param.param_id) {
-                        inferred.normalize(&inferred_scope)
+                        // Through a portal: the parameters left in it are those of the scope it was inferred in.
+                        TypeExpr::scope_portal(inferred, inferred_scope).normalize(&scope)
                     } else {
                         TypeExpr::Ref(ScopedTypeRef::Param(*param))
                     }

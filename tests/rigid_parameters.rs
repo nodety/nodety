@@ -356,3 +356,34 @@ fn a_closure_input_does_not_widen_a_parameter() {
     ];
     assert_eq!(Program::new(&nodes, &[(1, 2, 0, 0), (2, 3, 0, 1), (3, 4, 0, 0)]).errors(), []);
 }
+
+/// Behind a portal to its scope, a rigid parameter is still a supertype of itself, also as the bounds of `=N`.
+#[test]
+fn a_rigid_parameter_behind_a_portal_is_a_supertype_of_itself() {
+    let scope = rigid_scope("<rigid N extends Integer>");
+    for parent in ["N", "=N"] {
+        let parent = TypeExpr::scope_portal(expr(parent), ScopePointer::clone(&scope));
+        let result = parent.supertype_of(&expr("N"), &ScopePointer::new_root(), &scope);
+        assert_eq!(result, SupertypeResult::Supertype, "{parent:?}");
+    }
+}
+
+/// A parameter inferred from a rigid parameter of an outer scope stays that parameter in a scope that has another one
+/// of the same name: the node's `E` doesn't take the root's place, where its child passes `I` on as `O` and another
+/// child takes the root's `E` as `O`.
+#[test]
+fn an_inferred_parameter_keeps_the_scope_it_was_inferred_in() {
+    let program = Program::new(
+        &[
+            ("<rigid E>() -> ()", None),
+            ("() -> (E)", Some(0)),
+            ("<I, O, E extends Integer>(I) -> (O)", Some(0)),
+            ("() -> (I)", Some(2)),
+            ("(O) -> ()", Some(2)),
+            ("(E) -> ()", Some(0)),
+            ("(O) -> ()", Some(2)),
+        ],
+        &[(1, 2, 0, 0), (3, 4, 0, 0), (2, 5, 0, 0), (1, 6, 0, 0)],
+    );
+    assert_eq!(program.errors(), []);
+}

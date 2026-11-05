@@ -1,6 +1,7 @@
-use crate::common::{expr, graph, sig, sig_u};
+use crate::common::{expr, expr_u, graph, sig, sig_u};
 use DemoType::*;
 use TypeExpr::*;
+use assert_matches::assert_matches;
 use maplit::btreemap;
 use nodety::{
     demo_type::DemoType,
@@ -404,7 +405,9 @@ fn test_infer_during_candidate_collection() {
     let inferred_u = TypeExpr::<DemoType, ScopedTypeRef<DemoType>>::param_with_infer(LocalParamID::from("U"), true)
         .normalize(scopes.get(&NodeIndex::from(1)).unwrap());
 
-    assert_eq!(expr("T"), inferred_u);
+    // The closure's `T`, behind a portal to its scope.
+    assert_matches!(inferred_u, TypeExpr::Ref(ScopedTypeRef::ScopedExpr { .. }));
+    assert_eq!(expr_u("T"), inferred_u.force_remove_scope_portals());
 }
 
 ///                                         <T>
