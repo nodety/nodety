@@ -336,3 +336,31 @@ fn test_uninferred_source_into_bounded_param_is_insufficiently_inferred() {
         "{errors:?}"
     );
 }
+
+/// A generic closure as the default of a closure input: its parameter is inferred from the inputs the input gives it.
+///                          <C>
+///  | {a: Boolean} | ----- |C                                                   |
+///                         |(C) -> (Integer) = <P extends {a: Comparable}>(P) -> (Integer) |
+#[test]
+fn a_generic_closure_default_whose_inputs_exceed_its_bound() {
+    use nodety::Node;
+
+    let errors = closure_default_errors("{a: Boolean}");
+    let [ValidationError { location, kind: ValidationErrorKind::TypeParameterBoundsExceeded(diagnostics) }] =
+        &errors[..]
+    else {
+        panic!("Expected the bound to be exceeded, got {errors:?}");
+    };
+    assert_eq!(*location, GraphLocation::InputPort { node_idx: 1, input_idx: 1 });
+    assert_matches!(diagnostics.layers()[0].child, TypeExpr::Type(DemoType::Boolean));
+    assert_eq!(closure_default_errors("{a: Integer}"), []);
+
+    fn closure_default_errors(row: &str) -> Vec<ValidationError<DemoType>> {
+        let mut engine = graph(vec![sig_u(&format!("() -> ({row})"))], vec![]);
+        let mut signature = sig_u("<C>(C, (C) -> (Integer)) -> ()");
+        signature.default_input_types.insert(1, "<P extends {a: Comparable}>(P) -> (Integer)".parse().unwrap());
+        let node = engine.add_node(Node { signature, parent: None, type_hints: Default::default() }).unwrap();
+        engine.add_edge(NodeIndex::from(0), node, Edge { source_port: 0, target_port: 0 }).unwrap();
+        engine.validate(&engine.infer(&InferenceConfig::default()))
+    }
+}
