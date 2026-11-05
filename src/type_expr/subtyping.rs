@@ -356,9 +356,8 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                         &parent_scope,
                         &child_scope,
                     ),
-                    (_, ScopedRefView::Param(child_param)) => {
-                        child_param_supertype_of::<T, D, R, R2>(parent, child, child_param, &parent_scope, &child_scope)
-                    }
+                    // Through the parent's portal, also for a child parameter: it may be a rigid parameter, a supertype of the
+                    // same one, where the bound of the child is not.
                     (ScopedRefView::ScopedExpr { expr, scope }, _) => {
                         expr.supertype_of_impl::<D, R2>(child, scope, &child_scope)
                     }
