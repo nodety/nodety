@@ -1,10 +1,11 @@
 //! Validation of node graphs and type checking.
 use crate::nodety::Nodety;
 use crate::nodety::inference::Scopes;
-use crate::scope::ScopePointer;
+use crate::scope::{GlobalParameterId, ScopePointer};
 use crate::r#type::Type;
 use crate::type_expr::{
     ConcreteTypeExpr, ScopedTypeExpr, TypeExpr, TypeExprValidationError,
+    node_signature::candidate::Candidate,
     subtyping::{DetailedSupertypeDiagnostics, SupertypeResult},
     traversal::Variance,
 };
@@ -387,7 +388,27 @@ fn unknown_flow_error<T: Type>(
     target_scope: &ScopePointer<T>,
     source_scope: &ScopePointer<T>,
 ) -> ValidationErrorKind<T> {
-    for (global_id, candidates) in target.collect_candidates_in_order(source, target_scope, source_scope, false, true) {
+    let candidates = target.collect_candidates_in_order(source, target_scope, source_scope, false, true);
+    if let Some(diagnostics) = bound_exceeded(candidates, Variance::Covariant) {
+        return ValidationErrorKind::TypeParameterBoundsExceeded(diagnostics);
+    }
+    // The generics of a source closure (like `<P extends {a: Comparable}>(P) -> ()`) are inferred from the target
+    // when comparing them, from below where they are the closure's inputs: contravariant.
+    let (closure, generics_scope) = source.build_inferred_child_scope(target, source_scope, target_scope);
+    let candidates = closure.collect_candidates_in_order(target, &generics_scope, target_scope, false, true);
+    match bound_exceeded(candidates, Variance::Contravariant) {
+        Some(diagnostics) => ValidationErrorKind::TypeParameterBoundsExceeded(diagnostics),
+        None => ValidationErrorKind::InsufficientlyInferredTypes,
+    }
+}
+
+/// The diagnostics of the first candidate from below (`lower`) outside of the fully inferred bound of its uninferred
+/// parameter, see [unknown_flow_error].
+fn bound_exceeded<T: Type>(
+    candidates: Vec<(GlobalParameterId<T>, Vec<Candidate<T>>)>,
+    lower: Variance,
+) -> Option<DetailedSupertypeDiagnostics<T>> {
+    for (global_id, candidates) in candidates {
         let Some((var, param_scope)) = global_id.scope.lookup(&global_id.local_id) else {
             continue;
         };
@@ -399,15 +420,15 @@ fn unknown_flow_error<T: Type>(
         }
         let bound = bound.normalize(param_scope);
         for candidate in candidates {
-            if candidate.variance != Variance::Covariant || candidate.t.contains_uninferred(&candidate.scope) {
+            if candidate.variance != lower || candidate.t.contains_uninferred(&candidate.scope) {
                 continue;
             }
             if let SupertypeResult::Unrelated(d) =
                 bound.supertype_of_detailed(&candidate.t, param_scope, &candidate.scope)
             {
-                return ValidationErrorKind::TypeParameterBoundsExceeded(d);
+                return Some(d);
             }
         }
     }
-    ValidationErrorKind::InsufficientlyInferredTypes
+    None
 }
