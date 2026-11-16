@@ -11,8 +11,7 @@ pub struct Candidate<T: Type> {
     pub t: ScopedTypeExpr<T>,
     /// The scope of the candidate.
     pub scope: ScopePointer<T>,
-    /// Of the parameter's position in the type that collected the candidate: a candidate from a contravariant
-    /// position (the input of a node signature) bounds the parameter from the other side.
+    /// Which side the candidate bounds its parameter from.
     pub variance: Variance,
 }
 
