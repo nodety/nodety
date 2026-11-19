@@ -10,6 +10,7 @@ repository = "https://github.com/nodety/nodety"
 readme = "README.md"
 keywords = ["node", "types", "generics", "inference", "visual"]
 categories = ["wasm", "web-programming"]
+exclude = ["TODO.md", "tsReference.ts", ".github/"]
 
 [features]
 default = ["parser"]
