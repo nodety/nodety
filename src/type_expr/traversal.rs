@@ -300,6 +300,7 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
 
     /// Used for candidate search.
     /// if infer_other is true, `self` will be used to infer parameters in `other`.
+    /// `variance` is the direction of the flow between `self` and `other`, see [Variance].
     pub(crate) fn traverse_parallel(
         &self,
         other: &Self,
@@ -312,7 +313,7 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
             &Self,            // other_type
             &ScopePointer<T>, // current own scope
             &ScopePointer<T>, // current other scope (potentially inferred from `self`)
-            Variance,         // of the current position in `self`
+            Variance,         // of the current position, see [Variance]
         ),
     ) {
         walker(self, other, own_scope, other_scope, variance);
@@ -479,12 +480,20 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
                     return;
                 }
                 // A parameter that rules `other` out, like the key of `Dq<'dns', R>` against `Dq<'dnf', X>`: none of the
-                // other parameters is a candidate then.
+                // other parameters is a candidate then. Which of the two has to be the supertype depends on the
+                // direction of the flow at this position.
                 let rules_out = |(key, own_param): &(String, Self)| {
                     other_params.get(key).is_some_and(|other_param| {
                         !own_param.contains_type_param()
                             && matches!(
-                                own_param.supertype_of(other_param, &own_scope, &other_scope),
+                                match variance {
+                                    Variance::Covariant => {
+                                        own_param.supertype_of(other_param, &own_scope, &other_scope)
+                                    }
+                                    Variance::Contravariant => {
+                                        other_param.supertype_of(own_param, &other_scope, &own_scope)
+                                    }
+                                },
                                 SupertypeResult::Unrelated(_)
                             )
                     })
@@ -679,10 +688,15 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
     }
 }
 
-/// Whether a position in a type is covariant, or contravariant like the inputs of a node signature.
+/// The direction of the flow at a position of a type that collects candidates from another type. It turns around in
+/// the inputs of a node signature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Variance {
+    /// The other type flows into the collecting one, which has to be its supertype: a candidate bounds its parameter
+    /// from below.
     Covariant,
+    /// The collecting type flows into the other one, which has to be its supertype: a candidate bounds its parameter
+    /// from above.
     Contravariant,
 }
 

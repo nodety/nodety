@@ -665,3 +665,17 @@ fn a_cycle_through_a_closure_infers_from_outside_the_cycle() {
     assert_eq!(inferred_t(&engine, 1), Type(Integer));
     assert!(engine.validate(&engine.infer(&InferenceConfig::default())).is_empty());
 }
+
+/// A closure that takes more than it is called with fits, and still infers the other parameters of its input: here
+/// `T` from the `row` of a closure taking any `kind`, called with the kind `1`.
+#[test]
+fn a_closure_with_a_wider_input_infers_the_parameters_next_to_it() {
+    let nodety = graph(
+        vec![sig_u("() -> (({kind: Integer, row: String}) -> ())"), sig_u("<T>(({kind: 1, row: T}) -> ()) -> (T)")],
+        vec![(0, 1, 0, 0)],
+    );
+    let scopes = nodety.infer(&InferenceConfig::default());
+    assert_eq!(nodety.validate(&scopes), vec![]);
+    let inferred_t = scopes[&NodeIndex::from(1)].lookup_inferred(&LocalParamID::from("T")).unwrap();
+    assert_eq!(inferred_t.0, Type(String(None)));
+}

@@ -248,9 +248,9 @@ pub fn infer<T: Type>(mut flows: Vec<Flow<T>>, config: &InferenceConfig<T>) {
                 // parameter is picked from the lower bounds if it has any, so that a bound from the other side (like
                 // the input of a closure) doesn't widen it.
                 let backward = step.direction == InferenceDirection::Backward;
-                let (lower, upper): (Vec<_>, Vec<_>) = candidates.into_iter().partition(|candidate| {
-                    !config.respect_variance || (candidate.variance == Variance::Contravariant) == backward
-                });
+                let (lower, upper): (Vec<_>, Vec<_>) = candidates
+                    .into_iter()
+                    .partition(|candidate| !config.respect_variance || candidate.variance == Variance::Covariant);
                 // In a forward pass, a parameter with only upper bounds (from the inputs of closures) waits for the
                 // passes that allow uninferred candidates: a flow whose source isn't inferred yet gives no lower bound
                 // at all so far.
@@ -310,6 +310,7 @@ fn flow_candidates<T: Type>(
             &flow.source_scope,
             step.infer_candidates,
             step.ignore_excluded,
+            Variance::Covariant,
         )
     } else {
         flow.source.collect_candidates_in_order(
@@ -318,6 +319,7 @@ fn flow_candidates<T: Type>(
             &flow.target_scope,
             step.infer_candidates,
             step.ignore_excluded,
+            Variance::Contravariant,
         )
     };
     if let Some(restrictions) = &config.restrictions {
