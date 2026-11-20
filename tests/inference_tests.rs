@@ -679,3 +679,18 @@ fn a_closure_with_a_wider_input_infers_the_parameters_next_to_it() {
     let inferred_t = scopes[&NodeIndex::from(1)].lookup_inferred(&LocalParamID::from("T")).unwrap();
     assert_eq!(inferred_t.0, Type(String(None)));
 }
+
+/// The parameters of a generic closure are inferred from the input it flows into, whose inputs are narrower than the
+/// closure's: here `C` of a comparison taking any `index`, flowing into an input called with the index `1`.
+#[test]
+fn a_generic_closure_with_a_wider_input_infers_its_parameters() {
+    let nodety = graph(
+        vec![
+            sig_u("() -> (<C extends {time: Comparable | Unit}>({index: Integer, row: Array<C>}) -> (Integer))"),
+            sig_u("(({index: 1, row: Array<{time: Integer | Unit, club: String}>}) -> (Integer)) -> ()"),
+        ],
+        vec![(0, 1, 0, 0)],
+    );
+    let scopes = nodety.infer(&InferenceConfig::default());
+    assert_eq!(nodety.validate(&scopes), vec![]);
+}

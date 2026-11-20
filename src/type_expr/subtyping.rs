@@ -3,7 +3,7 @@ use crate::{
     r#type::Type,
     type_expr::{
         AsScopedRef, ErasedScopedTypeRef, NoRef, ParamRef, RigidTypeExpr, ScopedRefView, ScopedTypeExpr, ScopedTypeRef,
-        TypeExpr,
+        TypeExpr, traversal::Variance,
     },
 };
 use std::fmt::Debug;
@@ -297,7 +297,8 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
         use NoSupertypeReason::*;
         let (parent, parent_scope) = self.build_uninferred_child_scope(parent_scope);
         // Use the parent to infer the child's types.
-        let (child, child_scope) = child.build_inferred_child_scope(parent.as_ref(), child_scope, &parent_scope);
+        let (child, child_scope) =
+            child.build_inferred_child_scope(parent.as_ref(), child_scope, &parent_scope, Variance::Contravariant);
 
         if let Some(parent_form) = parent.rigid_parent_form(&parent_scope) {
             return rigid_supertype_of::<T, D, R, R2>(&parent_form, parent.as_ref(), child.as_ref(), &child_scope);

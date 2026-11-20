@@ -11,6 +11,7 @@ use crate::{
             validate_type_parameters,
         },
         subtyping::SupertypeResult,
+        traversal::Variance,
     },
 };
 use std::{
@@ -436,16 +437,19 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
         (without_params, ScopePointer::new(child_scope))
     }
 
-    /// If `self` has parameters, they will be attempted to be inferred from `source`.
+    /// If `self` has parameters, they will be attempted to be inferred from `other`, in the direction of the flow
+    /// between the two: `variance` is [Variance::Contravariant] if `self` flows into `other` (like a generic closure
+    /// into an input), [Variance::Covariant] if `other` flows into `self`.
     /// # Returns
     /// - `self` without parameters. Removing the parameters is necessary when performing
     ///   inference because if they don't get removed here, they could get inferred again later.
     /// - the inferred scope for `self`
     pub fn build_inferred_child_scope<'a, R2: AsScopedRef<T>>(
         &'a self,
-        source: &TypeExpr<T, R2>,
+        other: &TypeExpr<T, R2>,
         own_scope: &ScopePointer<T>,
-        source_scope: &ScopePointer<T>,
+        other_scope: &ScopePointer<T>,
+        variance: Variance,
     ) -> (Cow<'a, Self>, ScopePointer<T>) {
         let (self_without_params, own_params) = self.extract_generic_parameters();
         let Some(own_params) = own_params else {
@@ -463,12 +467,13 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
             to_infer.insert(GlobalParameterId { scope: ScopePointer::clone(&own_scope), local_id: *ident });
         }
 
-        let flows = vec![Flow {
-            source: source.clone().into_scoped(),
-            target: self_without_params.as_ref().clone().into_scoped(),
-            source_scope: ScopePointer::clone(source_scope),
-            target_scope: ScopePointer::clone(&own_scope),
-        }];
+        let own = (self_without_params.as_ref().clone().into_scoped(), ScopePointer::clone(&own_scope));
+        let other = (other.clone().into_scoped(), ScopePointer::clone(other_scope));
+        let ((source, source_scope), (target, target_scope), direction) = match variance {
+            Variance::Covariant => (other, own, InferenceDirection::Forward),
+            Variance::Contravariant => (own, other, InferenceDirection::Backward),
+        };
+        let flows = vec![Flow { source, target, source_scope, target_scope }];
         let config = InferenceConfig {
             restrictions: Some(to_infer),
             steps: vec![
@@ -477,18 +482,13 @@ impl<T: Type, R: AsScopedRef<T>> TypeExpr<T, R> {
                 // during candidate collection. When that happens the cycle detection
                 // will prevent the variable in own_scope from ever getting inferred.
                 InferenceStep {
-                    direction: InferenceDirection::Forward,
+                    direction: direction.clone(),
                     allow_uninferred: false,
                     infer_candidates: false,
                     // These have to get ignored here
                     ignore_excluded: true,
                 },
-                InferenceStep {
-                    direction: InferenceDirection::Forward,
-                    allow_uninferred: true,
-                    infer_candidates: false,
-                    ignore_excluded: true,
-                },
+                InferenceStep { direction, allow_uninferred: true, infer_candidates: false, ignore_excluded: true },
             ],
             respect_variance: false,
             ..Default::default()
