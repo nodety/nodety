@@ -320,7 +320,7 @@ impl<T: Type> TypeExpr<T, ScopedTypeRef<T>> {
 
         let (own, own_scope) = self.build_uninferred_child_scope(own_scope);
         let (other, other_scope) = if infer_other {
-            other.build_inferred_child_scope(own.as_ref(), other_scope, &own_scope)
+            other.build_inferred_child_scope(own.as_ref(), other_scope, &own_scope, variance.flip())
         } else {
             other.build_uninferred_child_scope(other_scope)
         };

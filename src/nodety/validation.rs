@@ -395,7 +395,8 @@ fn unknown_flow_error<T: Type>(
     }
     // The generics of a source closure (like `<P extends {a: Comparable}>(P) -> ()`) are inferred from the target
     // when comparing them, from below where they are the closure's inputs: contravariant.
-    let (closure, generics_scope) = source.build_inferred_child_scope(target, source_scope, target_scope);
+    let (closure, generics_scope) =
+        source.build_inferred_child_scope(target, source_scope, target_scope, Variance::Contravariant);
     let candidates = closure.collect_candidates_in_order(
         target,
         &generics_scope,

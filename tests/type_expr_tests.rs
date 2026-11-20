@@ -3,7 +3,9 @@ use nodety::{
     NodeSignature, Type,
     demo_type::{DemoType, SIUnit},
     scope::{LocalParamID, Scope, ScopePointer, type_parameter::TypeParameter},
-    type_expr::{NoRef, ParamRef, ScopedTypeExpr, ScopedTypeRef, TypeExpr, subtyping::SupertypeResult},
+    type_expr::{
+        NoRef, ParamRef, ScopedTypeExpr, ScopedTypeRef, TypeExpr, subtyping::SupertypeResult, traversal::Variance,
+    },
 };
 use std::str::FromStr;
 
@@ -159,7 +161,7 @@ fn test_infer_from() {
     let source = expr("<#0>(#0) -> (#0)");
     let target = expr("<#1>(#1) -> (#1)");
 
-    let (_, inferred_scope) = target.build_inferred_child_scope(&source, &scope, &scope);
+    let (_, inferred_scope) = target.build_inferred_child_scope(&source, &scope, &scope, Variance::Covariant);
 
     let (inferred, _inferred_scope) = inferred_scope.lookup_inferred(&LocalParamID(1)).unwrap();
 
@@ -819,4 +821,14 @@ fn keyof_uses_exact_keys_once_parameter_is_inferred() {
     let keys = expr("keyof #0");
     assert!(keys.supertype_of(&expr("'extra'"), &scope, &scope).is_supertype());
     assert!(matches!(keys.supertype_of(&expr("'missing'"), &scope, &scope), SupertypeResult::Unrelated(_)));
+}
+
+/// The parameters of a generic child are inferred from the parent it flows into, also where the child's inputs are
+/// wider than the parent's.
+#[test]
+fn a_generic_closure_with_a_wider_input_is_a_subtype() {
+    let parent = expr("({index: 1, row: Array<{time: Integer | Unit}>}) -> (Integer)");
+    let child = expr("<C extends {time: Comparable | Unit}>({index: Integer, row: Array<C>}) -> (Integer)");
+    let scope = ScopePointer::new_root();
+    assert!(parent.supertype_of(&child, &scope, &scope).is_supertype());
 }
